@@ -1,0 +1,55 @@
+[project]
+name = "korean-bertopic-pipeline"
+version = "0.1.0"
+description = "BERTopic pipeline for Korean and multilingual text analysis — GPU-ready, config-driven"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+keywords = ["bertopic", "topic-modeling", "nlp", "korean", "text-analysis"]
+
+dependencies = [
+    "bertopic>=0.16",
+    "sentence-transformers>=3.0",
+    "umap-learn>=0.5",
+    "hdbscan>=0.8",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "scikit-learn>=1.3",
+    "pyyaml>=6.0",
+    "tqdm>=4.65",
+]
+
+[project.optional-dependencies]
+# 한국어 형태소 분석
+korean = ["kiwipiepy>=0.17"]
+# GPU 가속 (SentenceTransformer CUDA)
+gpu = ["torch>=2.0"]
+# Jupyter 노트북
+notebook = ["jupyter", "ipywidgets", "matplotlib", "tabulate"]
+# 개발
+dev = ["pytest", "ruff", "jupyter", "matplotlib", "tabulate"]
+
+[project.scripts]
+bertopic-embed = "scripts.01_embed:main"
+bertopic-tune  = "scripts.02_tune:main"
+bertopic-model = "scripts.03_model:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+    "jupyter>=1.0",
+    "matplotlib>=3.7",
+    "tabulate>=0.9",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

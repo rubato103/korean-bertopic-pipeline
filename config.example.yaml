@@ -1,0 +1,121 @@
+# ============================================================
+# korean-bertopic-pipeline 설정 파일
+# 이 파일을 config.yaml로 복사 후 수정하세요
+# cp config.example.yaml config.yaml
+# ============================================================
+
+# ── 입력 데이터 ──────────────────────────────────────────────
+data:
+  # 분석할 CSV 파일 경로 (프로젝트 루트 기준)
+  input_path: "data/sample/sample_texts.csv"
+
+  # 텍스트가 있는 컬럼명
+  text_column: "text"
+
+  # 문서 식별자 컬럼 (없으면 null)
+  id_column: null
+
+  # 날짜 컬럼 (시계열 분석용, 없으면 null)
+  # 형식: YYYY-MM-DD 또는 YYYYMMDD
+  date_column: null
+
+  # 필터링 컬럼 (품질 검증 결과 등, 없으면 null)
+  verify_column: null
+  verify_values: null
+  # 예시: verify_column: "verify"
+  #        verify_values: ["accept_exact", "accept_keyword"]
+
+
+# ── 임베딩 설정 ───────────────────────────────────────────────
+embedding:
+  # 임베딩 모델 선택
+  # - "BAAI/bge-m3"                   : SOTA 다국어, 1024d, GPU 강력 권장
+  # - "jhgan/ko-sroberta-multitask"    : 경량 한국어, 768d, CPU도 가능
+  # - "sentence-transformers/all-MiniLM-L6-v2" : 영어 경량, 384d
+  model: "BAAI/bge-m3"
+
+  # 문서당 최대 문자 수 (임베딩 입력 절단)
+  # bge-m3: 2500자 (8192 토큰), ko-sroberta: 1000자 (512 토큰)
+  max_chars: 2500
+
+  # 배치 크기
+  # GPU (RTX 4090/5060): bge-m3=4, ko-sroberta=16
+  # CPU: bge-m3=8, ko-sroberta=32
+  batch_size: 4
+
+  # 임베딩 L2 정규화 (코사인 유사도 사용 시 True 권장)
+  normalize: true
+
+  # 임베딩 파일 저장 경로
+  output_dir: "data/embeddings"
+
+
+# ── 토크나이저 설정 ──────────────────────────────────────────
+tokenizer:
+  # 토크나이저 종류
+  # - "kiwi"        : 한국어 형태소 분석 (pip install kiwipiepy 필요)
+  # - "whitespace"  : 공백 기준 분리 (범용, 기본값)
+  # - "none"        : 토크나이저 미적용 (BERTopic 내부 사용)
+  type: "whitespace"
+
+  # Kiwi 사용자 사전 경로 (kiwi 전용, 없으면 null)
+  user_dict_path: null
+  # 예시: user_dict_path: "data/dictionaries/user_dict.txt"
+
+  # 불용어 파일 경로 (없으면 null)
+  stopwords_path: null
+  # 예시: stopwords_path: "data/dictionaries/stopwords.txt"
+
+  # 최소 토큰 길이
+  min_token_len: 2
+
+
+# ── 파라미터 튜닝 (선택) ────────────────────────────────────
+tuning:
+  # 튜닝 실행 여부
+  enabled: true
+
+  # 목표 토픽 수 범위 [최소, 최대]
+  target_topics: [20, 50]
+
+  # 병렬 처리 워커 수 (RAM 주의: 워커당 ~2-4GB)
+  n_workers: 4
+
+  # 튜닝 결과 저장 경로 (임베딩과 같은 경로에 저장 권장)
+  output_dir: "data/embeddings"
+
+  # UMAP 파라미터 그리드
+  umap:
+    n_neighbors: [10, 15, 20]   # 작을수록 지역 구조 강조
+    n_components: [5, 10, 15]   # 차원 수 (5-15 권장)
+    min_dist: [0.0, 0.05]       # 0.0 = 클러스터 압축
+
+  # HDBSCAN 파라미터 그리드
+  hdbscan:
+    min_cluster_size: [100, 150, 200, 250, 300]  # 클수록 토픽 수 감소
+    min_samples: [10, 15, 20]
+    cluster_selection_method: ["eom"]  # eom (뉴스 텍스트 권장)
+
+
+# ── BERTopic 모델 설정 ───────────────────────────────────────
+model:
+  # 토픽 수 강제 지정 (null = 자동)
+  nr_topics: null
+
+  # CountVectorizer 파라미터
+  min_df: 5        # 최소 문서 빈도 (희귀 단어 제거)
+  max_df: 0.95     # 최대 문서 빈도 비율 (너무 일반적인 단어 제거)
+
+  # 토픽 표현 방법 (복수 선택 가능)
+  representation:
+    - "KeyBERT"   # 키버트 기반 핵심 단어
+    - "MMR"       # 최대 주변 관련성 (다양성 확보)
+
+  # MMR 다양성 (0=최대 유사성, 1=최대 다양성)
+  mmr_diversity: 0.3
+
+  # 모델 저장 경로
+  output_dir: "data/model_results"
+
+  # 모델 파일 저장 여부
+  save_model: true
