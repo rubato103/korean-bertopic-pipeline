@@ -25,13 +25,12 @@ import numpy as np
 import pandas as pd
 from bertopic import BERTopic
 from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
-from hdbscan import HDBSCAN
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import CountVectorizer
-from umap import UMAP
 
 from pipeline.config import load_config
 from pipeline.embed import find_latest
+from pipeline.gpu import has_cuml
 from pipeline.tokenize import get_tokenizer
 
 
@@ -50,6 +49,10 @@ def main():
     parser.add_argument("--nr-topics", type=int, help="Fix number of topics (overrides tuned config)")
     parser.add_argument("--embed-dir", help="Override embedding input directory")
     parser.add_argument("--output-dir", help="Override model output directory")
+    parser.add_argument(
+        "--no-cuml", action="store_true",
+        help="Force CPU mode even if cuML (RAPIDS) is available",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -110,25 +113,59 @@ def main():
     umap_params = tuned["umap"] if tuned else DEFAULT_UMAP
     hdbscan_params = tuned["hdbscan"] if tuned else DEFAULT_HDBSCAN
 
-    # 4. Build BERTopic components
-    print(f"[Model] UMAP: n_neighbors={umap_params['n_neighbors']}, n_components={umap_params['n_components']}")
-    print(f"[Model] HDBSCAN: min_cluster_size={hdbscan_params['min_cluster_size']}, min_samples={hdbscan_params.get('min_samples', 15)}")
+    # 4. Build BERTopic components — cuML GPU or CPU
+    cuml_cfg = cfg.get("cuml", {}) or {}
+    cuml_enabled_cfg = cuml_cfg.get("enabled")
+    if args.no_cuml:
+        use_cuml = False
+    elif cuml_enabled_cfg is False:
+        use_cuml = False
+    elif cuml_enabled_cfg is True:
+        use_cuml = True
+    else:
+        use_cuml = has_cuml()
 
-    umap_model = UMAP(
-        n_neighbors=umap_params["n_neighbors"],
-        n_components=umap_params["n_components"],
-        min_dist=umap_params["min_dist"],
-        metric=umap_params.get("metric", "cosine"),
-        random_state=42,
-        n_jobs=1,
-    )
-    hdbscan_model = HDBSCAN(
-        min_cluster_size=hdbscan_params["min_cluster_size"],
-        min_samples=hdbscan_params.get("min_samples", 15),
-        cluster_selection_method=hdbscan_params.get("cluster_selection_method", "eom"),
-        metric="euclidean",
-        prediction_data=True,
-    )
+    accel = "cuML/GPU" if use_cuml else "CPU"
+    print(f"[Model] UMAP [{accel}]: n_neighbors={umap_params['n_neighbors']}, n_components={umap_params['n_components']}")
+    print(f"[Model] HDBSCAN [{accel}]: min_cluster_size={hdbscan_params['min_cluster_size']}, min_samples={hdbscan_params.get('min_samples', 15)}")
+
+    if use_cuml:
+        import cuml  # type: ignore[import]
+        cuml.set_global_output_type("numpy")
+        from cuml.manifold import UMAP as _UMAP  # type: ignore[import]
+        from cuml.cluster import HDBSCAN as _HDBSCAN  # type: ignore[import]
+        umap_model = _UMAP(
+            n_neighbors=umap_params["n_neighbors"],
+            n_components=umap_params["n_components"],
+            min_dist=umap_params["min_dist"],
+            metric=umap_params.get("metric", "cosine"),
+            random_state=42,
+            output_type="numpy",
+        )
+        hdbscan_model = _HDBSCAN(
+            min_cluster_size=hdbscan_params["min_cluster_size"],
+            min_samples=hdbscan_params.get("min_samples", 15),
+            cluster_selection_method=hdbscan_params.get("cluster_selection_method", "eom"),
+            prediction_data=True,
+        )
+    else:
+        from umap import UMAP as _UMAP  # type: ignore[import]
+        from hdbscan import HDBSCAN as _HDBSCAN  # type: ignore[import]
+        umap_model = _UMAP(
+            n_neighbors=umap_params["n_neighbors"],
+            n_components=umap_params["n_components"],
+            min_dist=umap_params["min_dist"],
+            metric=umap_params.get("metric", "cosine"),
+            random_state=42,
+            n_jobs=1,
+        )
+        hdbscan_model = _HDBSCAN(
+            min_cluster_size=hdbscan_params["min_cluster_size"],
+            min_samples=hdbscan_params.get("min_samples", 15),
+            cluster_selection_method=hdbscan_params.get("cluster_selection_method", "eom"),
+            metric="euclidean",
+            prediction_data=True,
+        )
     vectorizer_model = CountVectorizer(
         tokenizer=lambda x: x.split(),
         token_pattern=None,

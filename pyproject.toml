@@ -22,9 +22,13 @@ dependencies = [
 [project.optional-dependencies]
 # 한국어 형태소 분석
 korean = ["kiwipiepy>=0.17"]
-# GPU 가속 (PyTorch CUDA — CUDA 13.2 / sm_120 지원)
+# PyTorch CUDA (임베딩 GPU 가속 — CUDA 13.2 / sm_120)
 # 직접 설치 권장: pip install torch --index-url https://download.pytorch.org/whl/cu128
 gpu = ["torch>=2.7"]
+# RAPIDS cuML (UMAP/HDBSCAN GPU 가속 — WSL2 필수, conda 설치 권장)
+# conda install -c rapidsai cuml=25.04 python=3.12 cuda-version=12.8
+# pip (nightly): pip install cuml-cu12 --extra-index-url https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
+cuml = []  # pyproject.toml 직접 관리 불가 — 위 conda/pip 명령 사용
 # Jupyter 노트북
 notebook = ["jupyter", "ipywidgets", "matplotlib", "tabulate"]
 # 개발

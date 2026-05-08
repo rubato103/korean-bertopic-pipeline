@@ -212,3 +212,82 @@ def optimal_workers(max_workers: int | None = None) -> int:
     if max_workers:
         safe = min(safe, max_workers)
     return safe
+
+
+# ── cuML (RAPIDS) availability ────────────────────────────────────────────────
+
+def has_cuml() -> bool:
+    """Return True if RAPIDS cuML is importable (WSL2 + RAPIDS 25.04+ / sm_120)."""
+    try:
+        import cuml  # type: ignore[import]  # noqa: F401  # WSL2-only package
+        return True
+    except ImportError:
+        return False
+
+
+def make_umap(
+    n_neighbors: int = 15,
+    n_components: int = 10,
+    min_dist: float = 0.0,
+    metric: str = "cosine",
+    random_state: int = 42,
+    use_cuml: bool | None = None,
+):
+    """Return UMAP model — cuML GPU when available, umap-learn CPU otherwise.
+
+    Args:
+        use_cuml: True=force cuML, False=force CPU, None=auto-detect.
+    """
+    _cuml = has_cuml() if use_cuml is None else use_cuml
+    if _cuml:
+        from cuml.manifold import UMAP as cuUMAP  # type: ignore[import]
+        return cuUMAP(
+            n_neighbors=n_neighbors,
+            n_components=n_components,
+            min_dist=min_dist,
+            metric=metric,
+            random_state=random_state,
+            output_type="numpy",
+        )
+    from umap import UMAP  # type: ignore[import]
+    return UMAP(
+        n_neighbors=n_neighbors,
+        n_components=n_components,
+        min_dist=min_dist,
+        metric=metric,
+        random_state=random_state,
+        n_jobs=1,
+    )
+
+
+def make_hdbscan(
+    min_cluster_size: int = 150,
+    min_samples: int = 15,
+    cluster_selection_method: str = "eom",
+    prediction_data: bool = True,
+    use_cuml: bool | None = None,
+):
+    """Return HDBSCAN model — cuML GPU when available, hdbscan CPU otherwise.
+
+    Args:
+        use_cuml: True=force cuML, False=force CPU, None=auto-detect.
+    Note:
+        cuML HDBSCAN has no ``metric`` param — always uses Euclidean internally.
+    """
+    _cuml = has_cuml() if use_cuml is None else use_cuml
+    if _cuml:
+        from cuml.cluster import HDBSCAN as cuHDBSCAN  # type: ignore[import]
+        return cuHDBSCAN(
+            min_cluster_size=min_cluster_size,
+            min_samples=min_samples,
+            cluster_selection_method=cluster_selection_method,
+            prediction_data=prediction_data,
+        )
+    from hdbscan import HDBSCAN  # type: ignore[import]
+    return HDBSCAN(
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        cluster_selection_method=cluster_selection_method,
+        metric="euclidean",
+        prediction_data=prediction_data,
+    )

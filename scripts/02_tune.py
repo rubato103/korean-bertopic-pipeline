@@ -5,6 +5,7 @@ Usage:
     uv run python scripts/02_tune.py
     uv run python scripts/02_tune.py --config my_config.yaml
     uv run python scripts/02_tune.py --workers 4
+    uv run python scripts/02_tune.py --no-cuml   # force CPU even if cuML available
 
 Output: data/embeddings/<timestamp>_tuned_config.json
          reports/<timestamp>_tuning_report.md
@@ -13,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import warnings
 from datetime import datetime
@@ -29,7 +29,7 @@ import pandas as pd
 
 from pipeline.config import load_config
 from pipeline.embed import find_latest
-from pipeline.gpu import optimal_workers
+from pipeline.gpu import has_cuml, optimal_workers
 from pipeline.metrics import calculate_coherence, calculate_diversity, composite_score
 from pipeline.tokenize import get_tokenizer
 
@@ -44,20 +44,37 @@ except ImportError:
 _G: dict = {}
 
 
-def _worker_init(embeddings, docs, doc_word_sets, stopwords_list):
+def _worker_init(embeddings, docs, doc_word_sets, stopwords_list, use_cuml=False):
     _G["embeddings"] = embeddings
     _G["docs"] = docs
     _G["doc_word_sets"] = doc_word_sets
     _G["stopwords"] = stopwords_list
+    _G["use_cuml"] = use_cuml
 
 
 def _run_batched_trial(task: dict) -> list[dict]:
-    """Run 1 UMAP → multiple HDBSCAN trials (reuses UMAP reduction)."""
-    from umap import UMAP
-    from hdbscan import HDBSCAN
+    """Run 1 UMAP → multiple HDBSCAN trials (reuses UMAP reduction).
+
+    Uses cuML (GPU) when _G["use_cuml"] is True, else umap-learn/hdbscan (CPU).
+    """
     from bertopic import BERTopic
     from sklearn.feature_extraction.text import CountVectorizer
     from sklearn.metrics import silhouette_score
+
+    use_cuml = _G.get("use_cuml", False)
+
+    if use_cuml:
+        import cuml  # type: ignore[import]
+        cuml.set_global_output_type("numpy")
+        from cuml.manifold import UMAP   # type: ignore[import]
+        from cuml.cluster import HDBSCAN  # type: ignore[import]
+        umap_extra = {"output_type": "numpy"}
+        hdbscan_extra: dict = {}
+    else:
+        from umap import UMAP   # type: ignore[import]
+        from hdbscan import HDBSCAN  # type: ignore[import]
+        umap_extra = {"n_jobs": 1}
+        hdbscan_extra = {"metric": "euclidean"}
 
     embeddings = _G["embeddings"]
     docs = _G["docs"]
@@ -76,9 +93,11 @@ def _run_batched_trial(task: dict) -> list[dict]:
             min_dist=umap_cfg["min_dist"],
             metric="cosine",
             random_state=42,
-            n_jobs=1,
+            **umap_extra,
         )
         reduced = umap_model.fit_transform(embeddings)
+        if not isinstance(reduced, np.ndarray):
+            reduced = np.asarray(reduced)
     except Exception as e:
         print(f"[Tune] UMAP error: {e}")
         return []
@@ -89,12 +108,14 @@ def _run_batched_trial(task: dict) -> list[dict]:
                 min_cluster_size=hcfg["min_cluster_size"],
                 min_samples=hcfg["min_samples"],
                 cluster_selection_method=hcfg["cluster_method"],
-                metric="euclidean",
                 prediction_data=True,
+                **hdbscan_extra,
             )
             labels = hdbscan_model.fit_predict(reduced)
+            if not isinstance(labels, np.ndarray):
+                labels = np.asarray(labels)
 
-            n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+            n_clusters = len(set(labels.tolist())) - (1 if -1 in labels else 0)
             if n_clusters < 2:
                 continue
 
@@ -149,8 +170,12 @@ def _run_batched_trial(task: dict) -> list[dict]:
 def main():
     parser = argparse.ArgumentParser(description="UMAP/HDBSCAN parameter tuning")
     parser.add_argument("--config", default="config.yaml")
-    parser.add_argument("--workers", type=int, help="Number of parallel processes")
+    parser.add_argument("--workers", type=int, help="Number of parallel processes (CPU mode only)")
     parser.add_argument("--embed-dir", help="Override embedding directory")
+    parser.add_argument(
+        "--no-cuml", action="store_true",
+        help="Force CPU mode even if cuML (RAPIDS) is available",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -160,6 +185,26 @@ def main():
     if not tune_cfg.get("enabled", True):
         print("[Tune] Tuning disabled in config. Skipping.")
         return
+
+    # cuML detection — config can override auto-detect, --no-cuml always wins
+    cuml_cfg = cfg.get("cuml", {}) or {}
+    cuml_enabled_cfg = cuml_cfg.get("enabled")  # None=auto, True=force on, False=force off
+    if args.no_cuml:
+        use_cuml = False
+    elif cuml_enabled_cfg is False:
+        use_cuml = False
+    elif cuml_enabled_cfg is True:
+        use_cuml = True
+    else:
+        use_cuml = has_cuml()
+
+    if use_cuml:
+        print("[Tune] cuML (RAPIDS GPU) 감지 — 단일 프로세스 GPU 실행")
+        print("[Tune]   튜닝 속도: CPU 다중 프로세스 대비 약 10-20배 빠름")
+        n_workers = 1
+    else:
+        cfg_workers = tune_cfg.get("n_workers")
+        n_workers = args.workers or cfg_workers or optimal_workers()
 
     embed_dir = Path(args.embed_dir or tune_cfg.get("output_dir", "data/embeddings"))
     report_dir = Path("reports")
@@ -223,26 +268,30 @@ def main():
         for u in umap_combos
     ]
 
-    # Worker count priority: CLI arg > config > auto-detect from CPU topology
-    cfg_workers = tune_cfg.get("n_workers")
-    n_workers = args.workers or cfg_workers or optimal_workers()
     n_total = len(umap_combos) * len(hdbscan_combos)
     print(f"[Tune] Grid: {len(umap_combos)} UMAP × {len(hdbscan_combos)} HDBSCAN = {n_total} trials")
-    print(f"[Tune] Workers: {n_workers} (Ryzen 7 5700G: 8C/16T, RAM budget ~{n_workers * 2.5:.0f} GB)")
 
-    # 4. Run parallel tuning
-    all_results = []
-    with Pool(
-        processes=n_workers,
-        initializer=_worker_init,
-        initargs=(embeddings, processed_docs, doc_word_sets, stopwords_list),
-    ) as pool:
-        for batch_res in tqdm(
-            pool.imap_unordered(_run_batched_trial, batched_tasks),
-            total=len(batched_tasks),
-            desc="Tuning",
-        ):
-            all_results.extend(batch_res)
+    # 4. Run tuning — sequential GPU (cuML) or parallel CPU
+    all_results: list[dict] = []
+
+    if use_cuml:
+        print(f"[Tune] Mode: cuML GPU (single process)")
+        _worker_init(embeddings, processed_docs, doc_word_sets, stopwords_list, use_cuml=True)
+        for task in tqdm(batched_tasks, desc="Tuning (cuML/GPU)"):
+            all_results.extend(_run_batched_trial(task))
+    else:
+        print(f"[Tune] Mode: CPU (workers={n_workers}, RAM ~{n_workers * 2.5:.0f} GB)")
+        with Pool(
+            processes=n_workers,
+            initializer=_worker_init,
+            initargs=(embeddings, processed_docs, doc_word_sets, stopwords_list, False),
+        ) as pool:
+            for batch_res in tqdm(
+                pool.imap_unordered(_run_batched_trial, batched_tasks),
+                total=len(batched_tasks),
+                desc="Tuning (CPU)",
+            ):
+                all_results.extend(batch_res)
 
     if not all_results:
         print("[Tune] All trials failed.")
@@ -256,6 +305,7 @@ def main():
     config_out = {
         "timestamp": ts,
         "n_trials": len(all_results),
+        "cuml_used": use_cuml,
         "umap": {
             "n_neighbors": int(best["n_neighbors"]),
             "n_components": int(best["n_components"]),
@@ -285,8 +335,9 @@ def main():
     csv_path = report_dir / f"{ts}_tuning_results.csv"
     results_df.to_csv(csv_path, index=False, encoding="utf-8-sig")
 
-    print(f"\n[Done] Best config ({int(best['n_clusters'])} topics, composite={float(best['composite']):.4f}):")
-    print(f"  UMAP:   n_neighbors={int(best['n_neighbors'])}, n_components={int(best['n_components'])}, min_dist={float(best['min_dist'])}")
+    accel = "cuML/GPU" if use_cuml else f"CPU×{n_workers}"
+    print(f"\n[Done] Best config ({int(best['n_clusters'])} topics, composite={float(best['composite']):.4f}) [{accel}]:")
+    print(f"  UMAP:    n_neighbors={int(best['n_neighbors'])}, n_components={int(best['n_components'])}, min_dist={float(best['min_dist'])}")
     print(f"  HDBSCAN: min_cluster_size={int(best['min_cluster_size'])}, min_samples={int(best['min_samples'])}")
     print(f"\n  Config: {config_path}")
     print("Next step: uv run python scripts/03_model.py")

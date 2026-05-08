@@ -1,7 +1,7 @@
 # Korean BERTopic Pipeline
 
 한국어 텍스트에 최적화된 BERTopic 토픽 모델링 파이프라인  
-**RTX 5060 Ti 로컬 GPU + Google Colab 호환**
+**RTX 5060 Ti 로컬 GPU + Google Colab 호환 · RAPIDS cuML GPU 가속 지원**
 
 ---
 
@@ -23,7 +23,7 @@
 
 ```bash
 # 저장소 클론
-git clone https://github.com/YOUR_USERNAME/korean-bertopic-pipeline.git
+git clone https://github.com/rubato103/korean-bertopic-pipeline.git
 cd korean-bertopic-pipeline
 
 # 가상환경 + 의존성 설치 (uv 권장)
@@ -32,8 +32,8 @@ uv sync
 # 한국어 형태소 분석기 (선택)
 uv sync --extra korean
 
-# GPU 가속 (선택)
-uv sync --extra gpu
+# PyTorch GPU 가속 (선택 — 임베딩 단계)
+pip install torch --index-url https://download.pytorch.org/whl/cu128
 ```
 
 ### 2. 설정
@@ -51,7 +51,7 @@ data:
 
 embedding:
   model: "BAAI/bge-m3"             # 임베딩 모델
-  batch_size: 4                     # GPU 메모리에 맞게 조정
+  batch_size: null                  # null = VRAM 자동 감지
 ```
 
 ### 3. 실행
@@ -60,7 +60,7 @@ embedding:
 # Step 1: 임베딩 생성 (~2시간 / 44K 문서, RTX 5060 Ti)
 uv run python scripts/01_embed.py
 
-# Step 2: 파라미터 튜닝 (~30분, 선택)
+# Step 2: 파라미터 튜닝 (~30분 CPU / ~5분 cuML GPU, 선택)
 uv run python scripts/02_tune.py
 
 # Step 3: BERTopic 모델링 (~10분)
@@ -71,6 +71,56 @@ uv run python scripts/03_model.py
 ```bash
 jupyter lab notebooks/
 ```
+
+---
+
+## GPU 가속 구성
+
+### 임베딩 (PyTorch CUDA)
+
+SBERT 임베딩 생성 단계에서 GPU를 사용합니다. `pipeline/gpu.py`가 VRAM을 자동 감지하여 배치 크기를 조정합니다.
+
+```
+RTX 5060 Ti (16GB) 기준:
+  Ollama 미실행 시 → bge-m3: batch_size ≈ 24
+  Ollama gemma4:26b 실행 중 → bge-m3: batch_size ≈ 4 (자동 조정)
+```
+
+### UMAP / HDBSCAN — RAPIDS cuML (WSL2 필수)
+
+cuML이 설치된 경우 UMAP과 HDBSCAN을 GPU에서 실행합니다. CPU 대비 속도 비교:
+
+| 단계 | CPU (umap-learn / hdbscan) | cuML GPU |
+|------|---------------------------|----------|
+| UMAP (44K docs, 1024d→10d) | ~30분 | ~30초 |
+| 튜닝 그리드 전체 | ~3시간 | ~5분 |
+| BERTopic 전체 | ~40분 | ~8분 |
+
+**cuML 설치 (WSL2 환경)**:
+```bash
+# RTX 5060 Ti (sm_120): RAPIDS 25.04+ 필요
+conda install -c rapidsai cuml=25.04 python=3.12 cuda-version=12.8
+
+# pip nightly (대안)
+pip install cuml-cu12 \
+  --extra-index-url https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
+```
+
+**자동 감지 동작 방식**: cuML이 설치되어 있으면 `import cuml` 성공 여부를 확인하여 자동 활성화합니다.
+
+```yaml
+# config.yaml
+cuml:
+  enabled: null   # null=자동 감지 / true=강제 활성화 / false=CPU 강제
+```
+
+```bash
+# CLI로 CPU 강제 실행
+uv run python scripts/02_tune.py --no-cuml
+uv run python scripts/03_model.py --no-cuml
+```
+
+**cuML 튜닝 모드 특이사항**: cuML UMAP/HDBSCAN은 단일 GPU에서 내부적으로 병렬 처리되므로, cuML 감지 시 멀티프로세스 Pool 대신 단일 프로세스로 자동 전환됩니다.
 
 ---
 
@@ -120,13 +170,14 @@ korean-bertopic-pipeline/
 ├── pyproject.toml
 ├── pipeline/                  ← 재사용 가능한 핵심 모듈
 │   ├── config.py              ·· YAML 설정 로더
-│   ├── embed.py               ·· EmbeddingGenerator 클래스
+│   ├── embed.py               ·· EmbeddingGenerator (VRAM 자동 감지)
+│   ├── gpu.py                 ·· GPU/cuML 감지, 배치 크기 계산, UMAP/HDBSCAN 팩토리
 │   ├── tokenize.py            ·· Kiwi / Whitespace 토크나이저
 │   └── metrics.py             ·· 토픽 품질 지표 (Coherence, Diversity)
 ├── scripts/                   ← CLI 실행 스크립트
-│   ├── 01_embed.py
-│   ├── 02_tune.py
-│   └── 03_model.py
+│   ├── 01_embed.py            ·· 임베딩 생성
+│   ├── 02_tune.py             ·· 파라미터 튜닝 (CPU 멀티프로세스 / cuML GPU 자동 선택)
+│   └── 03_model.py            ·· BERTopic 실행 (CPU / cuML GPU 자동 선택)
 ├── notebooks/                 ← Jupyter 인터랙티브 워크플로
 │   ├── 01_embed.ipynb         ·· Colab/로컬 GPU 임베딩
 │   └── 02_bertopic.ipynb      ·· 튜닝 + 모델링
@@ -141,18 +192,23 @@ korean-bertopic-pipeline/
 
 ```python
 from pipeline import load_config, EmbeddingGenerator, get_tokenizer
+from pipeline import has_cuml, make_umap, make_hdbscan
 
 # 설정 로드
 cfg = load_config("config.yaml")
 
-# 임베딩 생성
+# 임베딩 생성 (VRAM 자동 감지)
 gen = EmbeddingGenerator(
     model_name="BAAI/bge-m3",
-    max_chars=2500,
-    batch_size=4,
+    batch_size=None,   # None = 자동 감지
 )
 embeddings = gen.encode(texts)
 gen.save(embeddings, metadata_df, "data/embeddings/")
+
+# UMAP / HDBSCAN — cuML 설치 시 자동으로 GPU 사용
+print(f"cuML available: {has_cuml()}")
+umap_model = make_umap(n_neighbors=15, n_components=10)
+hdbscan_model = make_hdbscan(min_cluster_size=150)
 
 # 한국어 토크나이저
 tokenizer = get_tokenizer(
@@ -170,9 +226,9 @@ tokens = tokenizer.tokenize("청소년 정책 지원 방안 마련")
 ```
 data/embeddings/
   20240801_120000_embeddings.npy       ← 임베딩 벡터 (N × D)
-  20240801_120000_metadata.csv         ← 원본 데이터 + text_for_embed 컬럼
-  20240801_120000_embedding_info.json  ← 모델 정보
-  20240801_130000_tuned_config.json    ← 최적 파라미터 (튜닝 완료 시)
+  20240801_120000_metadata.csv         ← 원본 데이터
+  20240801_120000_embedding_info.json  ← 모델 정보 + GPU 스냅샷
+  20240801_130000_tuned_config.json    ← 최적 파라미터 (cuml_used 포함)
 
 data/model_results/
   20240801_140000_bertopic_model/      ← BERTopic 모델 파일
@@ -197,6 +253,7 @@ sys.path.insert(0, PROJECT_DIR)
 
 from pipeline import EmbeddingGenerator
 # ... 이후 동일하게 사용
+# Colab에서는 cuML 미설치 → CPU 자동 폴백
 ```
 
 ---
@@ -204,7 +261,8 @@ from pipeline import EmbeddingGenerator
 ## 요구사항
 
 - Python 3.12+
-- GPU: NVIDIA (CUDA 12+) — bge-m3 사용 시 VRAM 8GB 이상 권장
+- GPU (임베딩): NVIDIA CUDA 12+ — bge-m3 사용 시 VRAM 8GB 이상 권장
+- GPU (cuML): WSL2 + RAPIDS 25.04+ — RTX 5060 Ti(sm_120) 이상
 - RAM: 16GB 이상 (튜닝 시 32GB 권장)
 
 ---

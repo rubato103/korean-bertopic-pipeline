@@ -123,3 +123,20 @@ model:
 
   # 모델 파일 저장 여부
   save_model: true
+
+
+# ── cuML GPU 가속 ────────────────────────────────────────────
+cuml:
+  # RAPIDS cuML로 UMAP + HDBSCAN을 GPU에서 실행
+  # null  = 자동 감지 (cuml import 성공 시 활성화)
+  # true  = 강제 활성화 (cuML 미설치 시 오류)
+  # false = 강제 비활성화 (CPU 모드)
+  #
+  # 속도 비교 (44K docs, RTX 5060 Ti 기준):
+  #   UMAP  : CPU ~30분 → GPU ~30초
+  #   튜닝  : CPU ~3시간 → GPU ~5분
+  #
+  # 설치 (WSL2 필수):
+  #   conda install -c rapidsai cuml=25.04 python=3.12 cuda-version=12.8
+  # RTX 5060 Ti (sm_120): RAPIDS 25.04+ 필요
+  enabled: null   # null = 자동 감지 (권장)
