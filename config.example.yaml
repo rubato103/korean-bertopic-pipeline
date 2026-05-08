@@ -38,10 +38,12 @@ embedding:
   # bge-m3: 2500자 (8192 토큰), ko-sroberta: 1000자 (512 토큰)
   max_chars: 2500
 
-  # 배치 크기
-  # GPU (RTX 4090/5060): bge-m3=4, ko-sroberta=16
-  # CPU: bge-m3=8, ko-sroberta=32
-  batch_size: 4
+  # 배치 크기 (null = VRAM 자동 감지 권장)
+  # RTX 5060 Ti (16GB) 기준:
+  #   Ollama 미실행 시 → bge-m3: ~24, ko-sroberta: ~80
+  #   Ollama gemma4:26b 실행 중 → bge-m3: ~4 (자동 조정됨)
+  # CPU 전용: bge-m3: 8, ko-sroberta: 32
+  batch_size: null   # null = 자동 감지 (권장)
 
   # 임베딩 L2 정규화 (코사인 유사도 사용 시 True 권장)
   normalize: true
@@ -78,8 +80,10 @@ tuning:
   # 목표 토픽 수 범위 [최소, 최대]
   target_topics: [20, 50]
 
-  # 병렬 처리 워커 수 (RAM 주의: 워커당 ~2-4GB)
-  n_workers: 4
+  # 병렬 처리 워커 수 (null = CPU 자동 감지 권장)
+  # Ryzen 7 5700G (8C/16T, 32GB RAM) 기준 자동값: 6
+  # 워커당 RAM ~2.5GB 소모 → 6 × 2.5 = 15GB (32GB 중 안전)
+  n_workers: null   # null = optimal_workers() 자동 감지
 
   # 튜닝 결과 저장 경로 (임베딩과 같은 경로에 저장 권장)
   output_dir: "data/embeddings"

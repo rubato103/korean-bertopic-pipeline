@@ -22,21 +22,21 @@ dependencies = [
 [project.optional-dependencies]
 # 한국어 형태소 분석
 korean = ["kiwipiepy>=0.17"]
-# GPU 가속 (SentenceTransformer CUDA)
-gpu = ["torch>=2.0"]
+# GPU 가속 (PyTorch CUDA — CUDA 13.2 / sm_120 지원)
+# 직접 설치 권장: pip install torch --index-url https://download.pytorch.org/whl/cu128
+gpu = ["torch>=2.7"]
 # Jupyter 노트북
 notebook = ["jupyter", "ipywidgets", "matplotlib", "tabulate"]
 # 개발
 dev = ["pytest", "ruff", "jupyter", "matplotlib", "tabulate"]
 
-[project.scripts]
-bertopic-embed = "scripts.01_embed:main"
-bertopic-tune  = "scripts.02_tune:main"
-bertopic-model = "scripts.03_model:main"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# hatchling이 'pipeline' 디렉토리를 패키지로 인식하도록 명시
+packages = ["pipeline"]
 
 [tool.uv]
 dev-dependencies = [

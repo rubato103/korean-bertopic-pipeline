@@ -1,16 +1,21 @@
-"""Embedding generation utilities — wraps sentence-transformers."""
+"""Embedding generation utilities — wraps sentence-transformers.
+
+RTX 5060 Ti (16GB VRAM) optimized:
+  - VRAM-aware batch size auto-adjustment via pipeline.gpu
+  - Ollama VRAM contention detection
+  - bge-m3: batch_size 16-32 when VRAM free; 4 when Ollama loaded
+"""
 from __future__ import annotations
 
-import glob
 import json
-import os
 import time
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pandas as pd
 from sentence_transformers import SentenceTransformer
+
+from .gpu import auto_batch_size, get_gpu_status
 
 
 class EmbeddingGenerator:
@@ -26,7 +31,7 @@ class EmbeddingGenerator:
         Truncate documents to this many characters before encoding.
         bge-m3 ≈ 2500 chars (8192 tokens), ko-sroberta ≈ 1000 chars (512 tokens).
     batch_size:
-        Sentences per batch. Lower for large GPU models to avoid OOM.
+        Sentences per batch. Pass None to auto-detect from available VRAM.
     normalize:
         L2-normalize embeddings (recommended for cosine similarity).
     device:
@@ -37,25 +42,37 @@ class EmbeddingGenerator:
         self,
         model_name: str = "BAAI/bge-m3",
         max_chars: int = 2500,
-        batch_size: int = 4,
+        batch_size: int | None = None,
         normalize: bool = True,
         device: str | None = None,
     ):
         self.model_name = model_name
         self.max_chars = max_chars
-        self.batch_size = batch_size
         self.normalize = normalize
 
-        if device is None:
-            try:
-                import torch
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-            except ImportError:
-                device = "cpu"
-        self.device = device
+        # Auto-detect device and batch_size from available VRAM.
+        # If batch_size is None, derive from free VRAM; if provided, validate it.
+        effective_batch, effective_device = auto_batch_size(
+            model_name=model_name,
+            requested=batch_size if batch_size is not None else 32,
+            verbose=True,
+        )
+        # When caller explicitly passed a batch_size, trust it but warn if risky.
+        if batch_size is not None and batch_size > effective_batch:
+            status = get_gpu_status()
+            print(
+                f"[Embed] ⚠  Requested batch_size={batch_size} may exceed safe limit "
+                f"({effective_batch}) for {status.free_vram_gb:.1f} GB free VRAM. "
+                f"Using {effective_batch} to avoid OOM."
+            )
+            self.batch_size = effective_batch
+        else:
+            self.batch_size = effective_batch if batch_size is None else batch_size
+
+        self.device = device or effective_device
 
         print(f"[Embed] Model: {model_name}")
-        print(f"[Embed] Device: {device} | batch_size: {batch_size} | max_chars: {max_chars}")
+        print(f"[Embed] Device: {self.device} | batch_size: {self.batch_size} | max_chars: {max_chars}")
         self._model: SentenceTransformer | None = None
 
     @property
@@ -102,6 +119,7 @@ class EmbeddingGenerator:
         metadata.to_csv(meta_path, index=False, encoding="utf-8-sig")
         paths["metadata"] = meta_path
 
+        gpu = get_gpu_status()
         info = {
             "timestamp": ts,
             "model_name": self.model_name,
@@ -111,6 +129,13 @@ class EmbeddingGenerator:
             "batch_size": self.batch_size,
             "device": self.device,
             "normalize_embeddings": self.normalize,
+            "gpu": {
+                "name": gpu.name,
+                "total_vram_gb": gpu.total_vram_gb,
+                "free_vram_gb": gpu.free_vram_gb,
+                "ollama_active": gpu.ollama_active,
+                "ollama_model": gpu.ollama_model,
+            } if gpu.available else None,
         }
         info_path = output_dir / f"{ts}_embedding_info.json"
         with open(info_path, "w", encoding="utf-8") as f:

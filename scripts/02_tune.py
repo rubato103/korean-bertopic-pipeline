@@ -29,6 +29,7 @@ import pandas as pd
 
 from pipeline.config import load_config
 from pipeline.embed import find_latest
+from pipeline.gpu import optimal_workers
 from pipeline.metrics import calculate_coherence, calculate_diversity, composite_score
 from pipeline.tokenize import get_tokenizer
 
@@ -222,10 +223,12 @@ def main():
         for u in umap_combos
     ]
 
-    n_workers = args.workers or tune_cfg.get("n_workers", 4)
+    # Worker count priority: CLI arg > config > auto-detect from CPU topology
+    cfg_workers = tune_cfg.get("n_workers")
+    n_workers = args.workers or cfg_workers or optimal_workers()
     n_total = len(umap_combos) * len(hdbscan_combos)
     print(f"[Tune] Grid: {len(umap_combos)} UMAP × {len(hdbscan_combos)} HDBSCAN = {n_total} trials")
-    print(f"[Tune] Workers: {n_workers}")
+    print(f"[Tune] Workers: {n_workers} (Ryzen 7 5700G: 8C/16T, RAM budget ~{n_workers * 2.5:.0f} GB)")
 
     # 4. Run parallel tuning
     all_results = []
