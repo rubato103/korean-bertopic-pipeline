@@ -38,15 +38,30 @@ services:
     command: bash
 
   # 한국어 형태소 분석 서버 (Bareun) — tokenizer.type: "bareun" 일 때만 필요.
+  # 클라이언트는 bareun-pipeline(파이프라인 컨테이너), 서버는 여기 별도 컨테이너.
   # `--profile bareun` 또는 `make up-bareun` 으로 기동.
-  # NOTE: 이미지 태그/레지스트리는 https://bareun.ai 발급 정보에 맞춰 조정하세요.
+  #
+  # GPU 정렬: 참조 레포 examples/docker_gpu(ONNX Runtime) 기준.
+  #   - sm_120(Blackwell, RTX 5060 Ti)은 TensorRT EP 권장 (형태소 결과 artifact 회피)
+  #   - ORT_PROVIDER 로 실행 공급자 선택 (TensorRT / CUDA)
+  # NOTE: 이미지 태그/레지스트리는 https://bareun.ai 발급 정보에 맞춰 교체하세요.
+  #       (현재 값은 placeholder)
   bareun:
     image: bareun/bareun-server:latest
     profiles: ["bareun"]
     environment:
       - BAREUN_API_KEY=${BAREUN_API_KEY:-}
+      - ORT_PROVIDER=${BAREUN_ORT_PROVIDER:-TensorRT}   # sm_120 → TensorRT 권장
+      - NVIDIA_VISIBLE_DEVICES=all
     ports:
       - "5656:5656"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: unless-stopped
 
 volumes:

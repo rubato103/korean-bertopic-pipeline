@@ -7,7 +7,7 @@
 #   make gpu-check        GPU/cuML 감지 확인
 #   make shell            컨테이너 셸 진입
 # ============================================================
-.PHONY: init build pipeline embed tune model shell gpu-check up-bareun down clean
+.PHONY: init build pipeline embed tune model shell gpu-check dict up-bareun down clean
 
 DC ?= docker compose
 RUN = $(DC) run --rm pipeline
@@ -31,6 +31,13 @@ model: init
 	$(RUN) python scripts/03_model.py
 
 pipeline: embed tune model
+
+# Bareun 사용자 사전 관리 (반복 튜닝): make dict ARGS="list"
+#   make dict ARGS="register --domain youth --np 청소년참여위원회"
+#   make dict ARGS="test --domain youth --text '청소년참여위원회 회의'"
+dict: init
+	$(DC) --profile bareun up -d bareun
+	$(DC) --profile bareun run --rm pipeline python scripts/00_dict.py $(ARGS)
 
 # Bareun 서버를 띄운 뒤 전체 파이프라인 실행 (tokenizer.type: "bareun")
 up-bareun: init

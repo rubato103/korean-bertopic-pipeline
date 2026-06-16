@@ -11,11 +11,16 @@ config 기반 · GPU 가속(임베딩 PyTorch CUDA + 차원축소/군집 RAPIDS 
 
 | 단계 | 스크립트 | 역할 | 가속 |
 |------|----------|------|------|
-| 1. 임베딩 | `scripts/01_embed.py` | SBERT 문서 벡터 생성 | PyTorch CUDA (VRAM 자동 배치) |
+| 0. 사전 튜닝 (선택, 한국어) | `scripts/00_dict.py` | Bareun 사용자 사전 반복 등록·테스트 | Bareun 서버 |
+| 1. 임베딩 | `scripts/01_embed.py` | **원문** SBERT 벡터 생성 | PyTorch CUDA (VRAM 자동 배치) |
 | 2. 튜닝 (선택) | `scripts/02_tune.py` | UMAP/HDBSCAN 그리드 서치 | CPU 멀티프로세스 / cuML GPU |
 | 3. 모델링 | `scripts/03_model.py` | BERTopic 실행 + 표현 정제 | cuML GPU / CPU 자동 |
 
 각 단계는 타임스탬프 산출물을 남기고, 다음 단계가 디렉토리에서 최신 파일을 자동으로 찾습니다.
+
+> **데이터 흐름**: 임베딩은 항상 **원문**으로 수행됩니다(토큰화와 독립). 형태소 분석(Bareun/Kiwi)은
+> 토픽 단어(c-TF-IDF) 표현에만 쓰이며, 한국어는 0단계에서 사용자 사전을 반복 튜닝해 품질을 높입니다.
+> 즉 *(사전 튜닝) → 원문 임베딩 → UMAP 차원축소 → HDBSCAN 군집 → 토픽 표현* 순서입니다.
 
 ---
 
@@ -119,6 +124,8 @@ uv sync        # 잠금 기준 설치
 ```
 
 > `cuml`·`torch`는 CUDA 휠/RAPIDS 특성상 PyPI 표준 해석으로 설치되지 않아 별도 안내(위)와 Docker로 처리합니다.
+> `bareun` extra(`bareun-pipeline`)를 처음 쓸 때는 네트워크가 되는 호스트에서 `uv lock`을 한 번 실행해
+> 잠금에 반영하세요.
 
 ---
 
@@ -217,35 +224,49 @@ pip install cuml-cu12 --extra-index-url https://pypi.anaconda.org/rapidsai-wheel
 
 | type | 설명 | 설치 |
 |------|------|------|
-| `bareun` | 한국어 형태소 — **gRPC 서버**(별도 컨테이너) | `uv sync --extra bareun` + Bareun 서버 |
+| `bareun` | 한국어 형태소 — **bareun-pipeline**(배치 클라이언트) + 별도 서버 | `uv sync --extra bareun` + Bareun 서버 |
 | `kiwi` | 한국어 형태소 — in-process | `uv sync --extra korean` |
 | `whitespace` | 공백 분리(범용, 기본값) | 기본 포함 |
 | `none` | 토크나이저 미적용 | 기본 포함 |
 
-Bareun·Kiwi는 명사(NNG/NNP/SL) 추출 + 접두/접미사 결합(예: 신+청소년+법) + 복수 `들` 제거를
-공유 로직으로 처리합니다. 불용어 파일과 사용자 사전(Kiwi)을 지원합니다.
+Kiwi는 명사(NNG/NNP/SL) 추출 + 접두/접미사 결합(예: 신+청소년+법) + 복수 `들` 제거를
+in-process로 처리합니다. Bareun은 아래 `bareun-pipeline`이 동일/상위 규칙(연속 NNG/NNP 결합 포함)을
+수행하며, 두 경우 모두 불용어·최소 길이 필터를 적용합니다.
 
-### Bareun (별도 컨테이너)
+### Bareun — `bareun-pipeline` 백엔드 (별도 컨테이너)
 
-Bareun은 in-process(Kiwi)와 달리 gRPC 서버이며 API key가 필요합니다.
+형태소 분석은 [`bareun-pipeline`](https://github.com/rubato103/bareun-pipeline)
+패키지(`BareunPipeline`, 배치/병렬 httpx 클라이언트)로 수행하고, Bareun 서버는
+별도 컨테이너로 띄웁니다. 사용자 사전은 `DictManager`로 **반복 튜닝**합니다.
 
 ```yaml
 tokenizer:
   type: "bareun"
   bareun:
-    host: "bareun"     # docker-compose 서비스명 (로컬은 "localhost")
+    host: "bareun"          # docker-compose 서비스명 (로컬은 "localhost")
     port: 5656
-    apikey: null       # null이면 BAREUN_API_KEY 환경변수 사용
-    domain: null       # 사용자 사전 도메인(선택)
+    apikey: null            # null이면 BAREUN_API_KEY 환경변수 사용
+    custom_dict_names: []   # 00_dict.py로 등록·튜닝한 도메인 이름
+    batch_size: 50
+    max_workers: 8
+    combine_consecutive_nominals: true   # 연속 NNG/NNP 결합
 ```
+
+**사용자 사전 반복 튜닝** (`scripts/00_dict.py` = `DictManager` 래퍼):
 
 ```bash
 # .env 에 BAREUN_API_KEY 입력 (발급: https://bareun.ai)
-make up-bareun         # bareun 서버 + 파이프라인 함께 실행
+make dict ARGS="register --domain youth --np 청소년참여위원회 --cp 학교폭력예방"
+make dict ARGS="test --domain youth --text '청소년참여위원회 회의'"   # 결과 확인 → 보완 → 재등록
+make dict ARGS="list"
+# 확정 후 config의 tokenizer.bareun.custom_dict_names: ["youth"] 추가
+
+make up-bareun         # bareun 서버 + 파이프라인 전체 실행
 ```
 
-> ⚠️ `docker-compose.yml`의 `bareun.image`는 **placeholder**(`bareun/bareun-server:latest`)입니다.
-> 발급받은 실제 이미지 태그/레지스트리로 교체해야 서버가 기동됩니다.
+> ⚠️ `docker-compose.yml`의 `bareun.image`는 **placeholder**입니다. 발급받은 실제 태그로 교체하세요.
+> GPU 서버는 참조 레포 `examples/docker_gpu`(ONNX Runtime) 기준이며, **sm_120(RTX 5060 Ti)은
+> TensorRT EP 권장**입니다(`BAREUN_ORT_PROVIDER`, compose에 GPU 예약 포함).
 
 **Kiwi 사용자 사전** (`user_dict.txt`) / **불용어** (`stopwords.txt`):
 ```
@@ -309,7 +330,7 @@ korean-bertopic-pipeline/
 │   ├── gpu.py              ·· GPU/cuML 감지, 배치 계산, UMAP/HDBSCAN 팩토리
 │   ├── tokenize.py         ·· Bareun / Kiwi / Whitespace 토크나이저
 │   └── metrics.py          ·· 토픽 품질 지표 (Coherence, Diversity)
-├── scripts/                ← CLI 실행 스크립트 (01/02/03)
+├── scripts/                ← CLI 실행 스크립트 (00_dict / 01 / 02 / 03)
 └── data/sample/            ← 샘플 데이터 (20건)
 ```
 

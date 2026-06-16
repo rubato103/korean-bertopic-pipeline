@@ -33,7 +33,10 @@ _DEFAULTS: dict[str, Any] = {
             "host": "localhost",
             "port": 5656,
             "apikey": None,  # None → BAREUN_API_KEY env var
-            "domain": None,
+            "custom_dict_names": [],          # DictManager로 튜닝한 도메인명
+            "batch_size": 50,                 # bareun-pipeline 배치 크기
+            "max_workers": 8,                 # 병렬 요청 수
+            "combine_consecutive_nominals": True,  # 연속 NNG/NNP 결합
         },
     },
     "tuning": {

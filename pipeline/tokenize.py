@@ -141,14 +141,20 @@ class KiwiTokenizer:
 
 
 class BareunTokenizer:
-    """Korean morpheme tokenizer using the Bareun gRPC server (bareunpy client).
+    """Korean morpheme tokenizer backed by the ``bareun-pipeline`` package.
 
-    Unlike Kiwi (in-process), Bareun runs as a **separate server** (default
-    port 5656). This client connects over gRPC, so the server must be reachable
-    — see the ``bareun`` service in docker-compose.yml. Requires an API key
-    from https://bareun.ai (set ``apikey`` or the ``BAREUN_API_KEY`` env var).
+    Wraps ``bareun_pipeline.BareunPipeline`` — a batched/parallel httpx client
+    for a Bareun server (separate container, default port 5656). Noun
+    extraction, prefix/suffix and consecutive-nominal combination are handled
+    by bareun-pipeline itself; this wrapper only applies stopword / min-length
+    filtering on top.
 
-    Requires: pip install bareunpy
+    Custom dictionaries are tuned separately via ``scripts/00_dict.py``
+    (``bareun_pipeline.DictManager``) and referenced here by
+    ``custom_dict_names``. Requires an API key (``apikey`` or ``BAREUN_API_KEY``).
+
+    Reference: https://github.com/rubato103/bareun-pipeline
+    Requires: pip install bareun-pipeline
     """
 
     def __init__(
@@ -158,14 +164,18 @@ class BareunTokenizer:
         apikey: str | None = None,
         stopwords: set[str] | None = None,
         min_len: int = 2,
-        domain: str | None = None,
+        custom_dict_names: list[str] | None = None,
+        batch_size: int = 50,
+        max_workers: int = 8,
+        combine_consecutive_nominals: bool = True,
+        post_combine_pairs: set[str] | None = None,
     ):
         try:
-            from bareunpy import Tagger
+            from bareun_pipeline import BareunPipeline
         except ImportError as e:
             raise ImportError(
-                "bareunpy is required for BareunTokenizer. "
-                "Install with: pip install bareunpy"
+                "bareun-pipeline is required for BareunTokenizer. "
+                "Install with: pip install bareun-pipeline"
             ) from e
 
         if not apikey:
@@ -176,32 +186,41 @@ class BareunTokenizer:
                 "or the BAREUN_API_KEY environment variable."
             )
 
-        self.tagger = Tagger(apikey, host, port)
-        if domain:
-            # Custom user-dictionary domain (optional, best-effort).
-            try:
-                self.tagger.set_domain(domain)
-            except Exception:
-                print(f"[Tokenizer] ⚠  Bareun domain '{domain}' not set (ignored)")
+        # bareun-pipeline expects a full URL host (http://host:port).
+        url = host if str(host).startswith("http") else f"http://{host}:{port}"
+        self.pipeline = BareunPipeline(
+            host=url, api_key=apikey, batch_size=batch_size, max_workers=max_workers,
+        )
+        self.custom_dict_names = list(custom_dict_names) if custom_dict_names else []
+        self.combine_consecutive_nominals = combine_consecutive_nominals
+        self.post_combine_pairs = set(post_combine_pairs) if post_combine_pairs else set()
         self.stopwords = stopwords or set()
         self.min_len = min_len
-        print(f"[Tokenizer] Bareun connected: {host}:{port}")
+        print(f"[Tokenizer] Bareun(pipeline) connected: {url} "
+              f"| dicts={self.custom_dict_names or '-'}")
+
+    def _filter(self, noun_list: list[str]) -> list[str]:
+        return [w for w in noun_list if len(w) >= self.min_len and w not in self.stopwords]
+
+    def _run(self, texts: list[str]):
+        kwargs: dict = {
+            "custom_dict_names": self.custom_dict_names,
+            "combine_consecutive_nominals": self.combine_consecutive_nominals,
+        }
+        if self.post_combine_pairs:
+            kwargs["post_combine_pairs"] = self.post_combine_pairs
+        return self.pipeline.run(texts, **kwargs)
 
     def tokenize(self, text: str) -> list[str]:
         if not text:
             return []
-        # bareunpy Tagger.pos(text) → list[(morpheme, POS-tag)]
-        pairs = [(m, t) for m, t in self.tagger.pos(text)]
-        return _extract_nouns(pairs, self.stopwords, self.min_len)
+        batch = self._run([text])
+        return self._filter(batch[0].noun_list)
 
     def tokenize_batch(self, texts: list[str], show_progress: bool = True) -> list[str]:
-        """Tokenize a list of documents, returning joined token strings."""
-        try:
-            from tqdm import tqdm
-            iterator = tqdm(texts, desc="Tokenizing(Bareun)") if show_progress else texts
-        except ImportError:
-            iterator = texts
-        return [" ".join(self.tokenize(t)) for t in iterator]
+        """Tokenize a list of documents (batched/parallel inside bareun-pipeline)."""
+        batch = self._run(list(texts))
+        return [" ".join(self._filter(nl)) for nl in batch.noun_lists()]
 
 
 def load_stopwords(path: str | Path | None) -> set[str]:
@@ -243,9 +262,13 @@ def get_tokenizer(
             host=b.get("host", "localhost"),
             port=b.get("port", 5656),
             apikey=b.get("apikey"),
-            domain=b.get("domain"),
             stopwords=stopwords,
             min_len=min_token_len,
+            custom_dict_names=b.get("custom_dict_names"),
+            batch_size=b.get("batch_size", 50),
+            max_workers=b.get("max_workers", 8),
+            combine_consecutive_nominals=b.get("combine_consecutive_nominals", True),
+            post_combine_pairs=b.get("post_combine_pairs"),
         )
     elif tokenizer_type == "kiwi":
         return KiwiTokenizer(

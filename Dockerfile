@@ -30,7 +30,7 @@ RUN pip install --no-cache-dir \
         "sentence-transformers>=3.0" \
         "pyyaml>=6.0" \
         "tqdm>=4.65" \
-        "bareunpy>=1.6"
+        "bareun-pipeline>=0.1"
 
 # 3) 프로젝트 코드 복사
 COPY . .

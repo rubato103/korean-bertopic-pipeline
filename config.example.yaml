@@ -73,13 +73,19 @@ tokenizer:
   min_token_len: 2
 
   # Bareun 서버 접속 설정 (type: "bareun" 일 때만 사용)
-  # Bareun은 별도 gRPC 서버로 동작 → docker-compose의 'bareun' 서비스 사용
+  # 백엔드: bareun-pipeline (배치/병렬 httpx 클라이언트 + 사용자 사전 관리)
+  #   참조: https://github.com/rubato103/bareun-pipeline
+  # Bareun은 별도 서버로 동작 → docker-compose의 'bareun' 서비스 사용
   # API key 발급: https://bareun.ai
   bareun:
     host: "localhost"   # docker-compose 사용 시 "bareun"
     port: 5656
     apikey: null        # null이면 BAREUN_API_KEY 환경변수 사용
-    domain: null        # 사용자 사전 도메인 (선택)
+    # 사용자 사전 도메인 — scripts/00_dict.py로 등록·튜닝 후 이름 나열
+    custom_dict_names: []
+    batch_size: 50      # 배치당 문장 수
+    max_workers: 8      # 병렬 요청 수
+    combine_consecutive_nominals: true   # 연속 NNG/NNP 결합
 
 
 # ── 파라미터 튜닝 (선택) ────────────────────────────────────
