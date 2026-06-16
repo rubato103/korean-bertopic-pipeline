@@ -13,8 +13,8 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "[setup] 의존성 설치 (korean=Kiwi, bareun=Bareun client, notebook)..."
-uv sync --extra korean --extra bareun --extra notebook
+echo "[setup] 의존성 설치 (korean=Kiwi, bareun=Bareun client)..."
+uv sync --extra korean --extra bareun
 
 echo "[setup] PyTorch (CUDA 12.8 / sm_120) 설치 시도..."
 if uv pip install torch --index-url https://download.pytorch.org/whl/cu128; then

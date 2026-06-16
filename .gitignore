@@ -8,10 +8,6 @@ venv/
 dist/
 build/
 
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb_checkpoints
-
 # Data — large files excluded from repo
 data/embeddings/*.npy
 data/embeddings/*.csv
