@@ -55,7 +55,8 @@ embedding:
 # ── 토크나이저 설정 ──────────────────────────────────────────
 tokenizer:
   # 토크나이저 종류
-  # - "kiwi"        : 한국어 형태소 분석 (pip install kiwipiepy 필요)
+  # - "bareun"      : 한국어 형태소 분석 (Bareun gRPC 서버 — 별도 컨테이너/서버 필요)
+  # - "kiwi"        : 한국어 형태소 분석 (in-process, pip install kiwipiepy 필요)
   # - "whitespace"  : 공백 기준 분리 (범용, 기본값)
   # - "none"        : 토크나이저 미적용 (BERTopic 내부 사용)
   type: "whitespace"
@@ -70,6 +71,15 @@ tokenizer:
 
   # 최소 토큰 길이
   min_token_len: 2
+
+  # Bareun 서버 접속 설정 (type: "bareun" 일 때만 사용)
+  # Bareun은 별도 gRPC 서버로 동작 → docker-compose의 'bareun' 서비스 사용
+  # API key 발급: https://bareun.ai
+  bareun:
+    host: "localhost"   # docker-compose 사용 시 "bareun"
+    port: 5656
+    apikey: null        # null이면 BAREUN_API_KEY 환경변수 사용
+    domain: null        # 사용자 사전 도메인 (선택)
 
 
 # ── 파라미터 튜닝 (선택) ────────────────────────────────────

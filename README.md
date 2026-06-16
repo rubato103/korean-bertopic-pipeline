@@ -17,7 +17,38 @@
 
 ---
 
-## 빠른 시작
+## 원클릭 실행 (Docker · 권장)
+
+임베딩(PyTorch CUDA)과 차원축소/군집(RAPIDS cuML)을 **단일 GPU 이미지**로 묶어
+클론 후 한두 명령으로 전체 파이프라인이 동작합니다.
+
+```bash
+git clone https://github.com/rubato103/korean-bertopic-pipeline.git
+cd korean-bertopic-pipeline
+
+make build          # 이미지 빌드 (+ config.yaml/.env 자동 생성)
+make gpu-check      # GPU + cuML 감지 확인
+make pipeline       # 01 임베딩 → 02 튜닝 → 03 모델 전체 실행
+```
+
+| 명령 | 동작 |
+|------|------|
+| `make build` | RAPIDS 25.04 + torch(cu128) + BERTopic 단일 이미지 빌드 |
+| `make embed` / `tune` / `model` | 단계별 실행 |
+| `make pipeline` | 1→2→3 전체 실행 |
+| `make up-bareun` | Bareun 형태소 서버 컨테이너까지 기동 후 전체 실행 |
+| `make gpu-check` | GPU/cuML 가용성 점검 |
+| `make shell` | 컨테이너 셸 진입 |
+
+**전제**: NVIDIA 드라이버 + `nvidia-container-toolkit` (WSL2 지원). RTX 5060 Ti(sm_120)는
+RAPIDS 25.04 / CUDA 12.8 기준입니다. `docker-compose.yml`의 버전 인자로 조정 가능합니다.
+
+> Docker 없이 로컬(uv)로 구성하려면 `./setup.sh` — 단 cuML(GPU UMAP/HDBSCAN)은
+> conda/WSL2가 필요하므로 GPU 차원축소까지 원클릭으로 원하면 Docker를 권장합니다.
+
+---
+
+## 빠른 시작 (수동 설치)
 
 ### 1. 설치
 
@@ -138,11 +169,32 @@ uv run python scripts/03_model.py --no-cuml
 
 ```yaml
 tokenizer:
-  type: "kiwi"          # 한국어: 형태소 분석 (pip install kiwipiepy)
+  type: "bareun"        # 한국어: Bareun 형태소 분석 (별도 gRPC 서버)
+  # type: "kiwi"        # 한국어: Kiwi 형태소 분석 (in-process, pip install kiwipiepy)
   # type: "whitespace"  # 범용: 공백 분리 (기본값)
-  user_dict_path: "data/dictionaries/user_dict.txt"  # 사용자 사전
+  user_dict_path: "data/dictionaries/user_dict.txt"  # 사용자 사전 (kiwi)
   stopwords_path: "data/dictionaries/stopwords.txt"  # 불용어
+  bareun:
+    host: "bareun"      # docker-compose 서비스명 (로컬은 "localhost")
+    port: 5656
+    apikey: null        # null이면 BAREUN_API_KEY 환경변수 사용
+    domain: null        # 사용자 사전 도메인 (선택)
 ```
+
+### Bareun (한국어 형태소 — 별도 컨테이너)
+
+Bareun은 in-process 라이브러리인 Kiwi와 달리 **gRPC 서버**로 동작합니다. 파이프라인은
+`bareunpy` 클라이언트로 접속하므로 서버를 **별도 컨테이너(사이드카)** 로 띄웁니다.
+
+```bash
+# .env 에 BAREUN_API_KEY 입력 (https://bareun.ai 에서 발급)
+# config.yaml: tokenizer.type: "bareun", bareun.host: "bareun"
+make up-bareun        # bareun 서버 + 파이프라인 함께 실행
+```
+
+> Bareun 서버 이미지는 라이선스/레지스트리 정책에 따라 `docker-compose.yml`의
+> `bareun.image` 태그를 발급받은 값으로 맞춰 주세요. API key는 `.env`(`BAREUN_API_KEY`)
+> 또는 `config.yaml`의 `tokenizer.bareun.apikey`로 주입됩니다.
 
 **Kiwi 사용자 사전 형식** (`user_dict.txt`):
 ```
@@ -168,11 +220,16 @@ tokenizer:
 korean-bertopic-pipeline/
 ├── config.example.yaml        ← 설정 템플릿
 ├── pyproject.toml
+├── Dockerfile                 ← 단일 GPU 이미지 (임베딩 + cuML)
+├── docker-compose.yml         ← pipeline + bareun 오케스트레이션
+├── Makefile                   ← 원클릭 명령 (build/pipeline/up-bareun…)
+├── setup.sh                   ← 비-Docker 로컬 셋업 (uv)
+├── .env.example               ← BAREUN_API_KEY 등 환경변수 템플릿
 ├── pipeline/                  ← 재사용 가능한 핵심 모듈
 │   ├── config.py              ·· YAML 설정 로더
 │   ├── embed.py               ·· EmbeddingGenerator (VRAM 자동 감지)
 │   ├── gpu.py                 ·· GPU/cuML 감지, 배치 크기 계산, UMAP/HDBSCAN 팩토리
-│   ├── tokenize.py            ·· Kiwi / Whitespace 토크나이저
+│   ├── tokenize.py            ·· Bareun / Kiwi / Whitespace 토크나이저
 │   └── metrics.py             ·· 토픽 품질 지표 (Coherence, Diversity)
 ├── scripts/                   ← CLI 실행 스크립트
 │   ├── 01_embed.py            ·· 임베딩 생성

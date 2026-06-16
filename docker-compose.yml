@@ -1,0 +1,53 @@
+# ============================================================
+# 원클릭 GPU 파이프라인 오케스트레이션
+#   pipeline : 임베딩(torch CUDA) + UMAP/HDBSCAN(cuML) 단일 컨테이너
+#   bareun   : 한국어 형태소 분석 gRPC 서버 (별도 컨테이너 / 프로필 옵션)
+#
+# 사용:
+#   make build && make pipeline            # 전체 실행 (whitespace/kiwi)
+#   make up-bareun                         # Bareun 서버까지 포함
+# ============================================================
+services:
+  pipeline:
+    build:
+      context: .
+      args:
+        RAPIDS_VERSION: "25.04"
+        CUDA_VERSION: "12.8"
+        PYTHON_VERSION: "3.12"
+    image: korean-bertopic-pipeline:gpu
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HF_HOME=/workspace/.cache/huggingface
+      # type: "bareun" 사용 시 클라이언트가 참조 (config의 apikey가 null일 때)
+      - BAREUN_API_KEY=${BAREUN_API_KEY:-}
+    volumes:
+      - ./config.yaml:/workspace/config.yaml   # make init 으로 먼저 생성
+      - ./data:/workspace/data
+      - ./reports:/workspace/reports
+      - hf-cache:/workspace/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    stdin_open: true
+    tty: true
+    command: bash
+
+  # 한국어 형태소 분석 서버 (Bareun) — tokenizer.type: "bareun" 일 때만 필요.
+  # `--profile bareun` 또는 `make up-bareun` 으로 기동.
+  # NOTE: 이미지 태그/레지스트리는 https://bareun.ai 발급 정보에 맞춰 조정하세요.
+  bareun:
+    image: bareun/bareun-server:latest
+    profiles: ["bareun"]
+    environment:
+      - BAREUN_API_KEY=${BAREUN_API_KEY:-}
+    ports:
+      - "5656:5656"
+    restart: unless-stopped
+
+volumes:
+  hf-cache:

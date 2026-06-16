@@ -44,12 +44,15 @@ except ImportError:
 _G: dict = {}
 
 
-def _worker_init(embeddings, docs, doc_word_sets, stopwords_list, use_cuml=False):
+def _worker_init(embeddings, docs, doc_word_sets, stopwords_list, use_cuml=False,
+                 min_df=5, max_df=0.95):
     _G["embeddings"] = embeddings
     _G["docs"] = docs
     _G["doc_word_sets"] = doc_word_sets
     _G["stopwords"] = stopwords_list
     _G["use_cuml"] = use_cuml
+    _G["min_df"] = min_df
+    _G["max_df"] = max_df
 
 
 def _run_batched_trial(task: dict) -> list[dict]:
@@ -127,12 +130,15 @@ def _run_batched_trial(task: dict) -> list[dict]:
                 else 0.0
             )
 
+            # Docs are already tokenized + stopword-filtered by the tokenizer,
+            # so we mirror 03_model's vectorizer (same min_df/max_df, no
+            # double stop_words) to keep tuning scores consistent with the
+            # final model.
             vectorizer = CountVectorizer(
                 tokenizer=lambda x: x.split(),
                 token_pattern=None,
-                stop_words=stopwords if stopwords else None,
-                min_df=3,
-                max_df=0.95,
+                min_df=_G.get("min_df", 5),
+                max_df=_G.get("max_df", 0.95),
             )
             topic_model = BERTopic(
                 umap_model=umap_model,
@@ -181,6 +187,9 @@ def main():
     cfg = load_config(args.config)
     tune_cfg = cfg["tuning"]
     tok_cfg = cfg["tokenizer"]
+    model_cfg = cfg["model"]
+    min_df = model_cfg.get("min_df", 5)
+    max_df = model_cfg.get("max_df", 0.95)
 
     if not tune_cfg.get("enabled", True):
         print("[Tune] Tuning disabled in config. Skipping.")
@@ -233,6 +242,7 @@ def main():
         user_dict_path=tok_cfg.get("user_dict_path"),
         stopwords_path=tok_cfg.get("stopwords_path"),
         min_token_len=tok_cfg.get("min_token_len", 2),
+        bareun=tok_cfg.get("bareun"),
     )
     raw_docs = df[text_col].fillna("").tolist()
 
@@ -276,7 +286,8 @@ def main():
 
     if use_cuml:
         print(f"[Tune] Mode: cuML GPU (single process)")
-        _worker_init(embeddings, processed_docs, doc_word_sets, stopwords_list, use_cuml=True)
+        _worker_init(embeddings, processed_docs, doc_word_sets, stopwords_list,
+                     use_cuml=True, min_df=min_df, max_df=max_df)
         for task in tqdm(batched_tasks, desc="Tuning (cuML/GPU)"):
             all_results.extend(_run_batched_trial(task))
     else:
@@ -284,7 +295,8 @@ def main():
         with Pool(
             processes=n_workers,
             initializer=_worker_init,
-            initargs=(embeddings, processed_docs, doc_word_sets, stopwords_list, False),
+            initargs=(embeddings, processed_docs, doc_word_sets, stopwords_list,
+                      False, min_df, max_df),
         ) as pool:
             for batch_res in tqdm(
                 pool.imap_unordered(_run_batched_trial, batched_tasks),

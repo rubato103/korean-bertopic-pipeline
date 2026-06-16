@@ -31,6 +31,9 @@ plots/
 config.yaml
 config.local.yaml
 
+# Environment variables (API keys e.g. BAREUN_API_KEY)
+.env
+
 # OS
 .DS_Store
 Thumbs.db

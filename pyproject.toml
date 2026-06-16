@@ -20,8 +20,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# 한국어 형태소 분석
-korean = ["kiwipiepy>=0.17"]
+# 한국어 형태소 분석 — Kiwi (in-process, model_type="cong-global"은 0.21+ 필요)
+korean = ["kiwipiepy>=0.21"]
+# 한국어 형태소 분석 — Bareun (gRPC 클라이언트, 별도 서버 컨테이너 필요)
+bareun = ["bareunpy>=1.6"]
 # PyTorch CUDA (임베딩 GPU 가속 — CUDA 13.2 / sm_120)
 # 직접 설치 권장: pip install torch --index-url https://download.pytorch.org/whl/cu128
 gpu = ["torch>=2.7"]
