@@ -174,15 +174,25 @@ def main():
         max_df=model_cfg.get("max_df", 0.95),
     )
 
-    # Representation models
+    # Representation models — a *chained list* refines the MAIN topic words
+    # sequentially (config order matters: KeyBERT for relevance → MMR for
+    # diversity). A dict, by contrast, only adds secondary "aspects" and leaves
+    # the main representation as raw c-TF-IDF.
     repr_names = model_cfg.get("representation", ["KeyBERT", "MMR"])
-    representation_model: dict = {}
-    if "KeyBERT" in repr_names:
-        representation_model["KeyBERT"] = KeyBERTInspired()
-    if "MMR" in repr_names:
-        representation_model["MMR"] = MaximalMarginalRelevance(
+    _repr_factory = {
+        "KeyBERT": lambda: KeyBERTInspired(),
+        "MMR": lambda: MaximalMarginalRelevance(
             diversity=model_cfg.get("mmr_diversity", 0.3)
-        )
+        ),
+    }
+    repr_chain = [_repr_factory[n]() for n in repr_names if n in _repr_factory]
+    if not repr_chain:
+        representation_model = None
+    elif len(repr_chain) == 1:
+        representation_model = repr_chain[0]
+    else:
+        representation_model = repr_chain  # chained → updates Main representation
+    print(f"[Model] Representation chain: {[n for n in repr_names if n in _repr_factory] or '(c-TF-IDF only)'}")
 
     embedding_model = SentenceTransformer(embed_cfg.get("model", "BAAI/bge-m3"))
 
@@ -193,7 +203,7 @@ def main():
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
         vectorizer_model=vectorizer_model,
-        representation_model=representation_model or None,
+        representation_model=representation_model,
         nr_topics=nr_topics,
         calculate_probabilities=False,
         verbose=True,
