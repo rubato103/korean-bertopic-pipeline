@@ -282,6 +282,50 @@ make up-bareun         # bareun 서버 + 파이프라인 전체 실행
 
 ---
 
+## 토픽 표현(representation)
+
+`model.representation` 리스트가 **순서대로 체인 적용**되어 주 토픽 단어를 정제합니다.
+빈 리스트면 c-TF-IDF 원형을 사용합니다.
+
+```yaml
+model:
+  representation: ["KeyBERT", "MMR"]   # 관련성 → 다양성 (체인)
+```
+
+| 항목 | 역할 | 근거 |
+|------|------|------|
+| `KeyBERT` | 임베딩 기반 관련성 높은 키워드 | KeyBERTInspired (BERTopic) |
+| `MMR` | 다양성 확보(중복 억제) 재정렬 | Carbonell & Goldstein, SIGIR 1998 |
+| `LLM` | vLLM 로컬 모델로 **자연어 토픽 라벨** 생성 (선택) | TopicGPT(NAACL 2024), arXiv:2502.18469 |
+
+### LLM 표현 — vLLM 로컬 모델 (선택, 표준 패턴)
+
+별도 커스텀 없이 **BERTopic 기본 `OpenAI` 표현 모델을 vLLM의 OpenAI 호환
+엔드포인트(`base_url`)에 연결**합니다. `representation`에 `"LLM"`을 추가할 때만
+동작하며, 끄면 `openai` 패키지도 필요 없습니다.
+
+```bash
+uv sync --extra llm     # openai 클라이언트
+# vLLM 서버 예: vllm serve Qwen/Qwen2.5-7B-Instruct --port 8000
+```
+
+```yaml
+model:
+  representation: ["KeyBERT", "MMR", "LLM"]   # LLM은 체인 마지막 권장
+  llm:
+    base_url: "http://localhost:8000/v1"
+    model: "Qwen/Qwen2.5-7B-Instruct"   # vLLM이 서빙 중인 모델명 (필수)
+    api_key: null        # null → OPENAI_API_KEY 또는 "EMPTY"(무인증)
+    temperature: 0.0
+    nr_docs: 4
+    prompt: null         # null → 내장 한국어 프롬프트(환각 완화 지시 포함)
+```
+
+> 내장 프롬프트는 `[KEYWORDS]`·`[DOCUMENTS]`만 근거로 라벨을 생성하도록 지시해
+> **환각**을 줄입니다(참고: 토픽 입도·환각 한계, arXiv:2405.00611). 결과 라벨은 검증 권장.
+
+---
+
 ## 임베딩 모델 선택
 
 | 모델 | 언어 | 차원 | 속도 | 권장 환경 |

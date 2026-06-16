@@ -59,8 +59,20 @@ _DEFAULTS: dict[str, Any] = {
         "nr_topics": None,
         "min_df": 5,
         "max_df": 0.95,
+        # 표현 체인(순서대로 주 표현 정제). "LLM"을 추가하면 vLLM으로 라벨 생성.
         "representation": ["KeyBERT", "MMR"],
         "mmr_diversity": 0.3,
+        # LLM 표현(선택) — representation에 "LLM"이 있을 때만 사용.
+        # vLLM의 OpenAI 호환 엔드포인트로 연결 (base_url).
+        "llm": {
+            "base_url": "http://localhost:8000/v1",  # vLLM OpenAI 호환 주소
+            "model": None,        # vLLM이 서빙 중인 모델명 (필수, 예: "Qwen/Qwen2.5-7B-Instruct")
+            "api_key": None,      # None → OPENAI_API_KEY 또는 "EMPTY"
+            "chat": True,         # /v1/chat/completions 사용
+            "temperature": 0.0,
+            "nr_docs": 4,         # 토픽당 LLM에 제공할 대표 문서 수
+            "prompt": None,       # None → 내장 한국어 프롬프트
+        },
         "output_dir": "data/model_results",
         "save_model": True,
     },

@@ -128,12 +128,26 @@ model:
 
   # 토픽 표현 방법 — 나열 순서대로 체인 적용되어 '주 표현'을 정제
   # (예: KeyBERT로 관련성↑ → MMR로 다양성↑). 빈 리스트면 c-TF-IDF 원형 사용.
+  # "LLM"을 마지막에 추가하면 vLLM으로 한국어 토픽 라벨 생성 (아래 llm 설정).
   representation:
     - "KeyBERT"   # 키버트 기반 핵심 단어 (관련성)
     - "MMR"       # 최대 주변 관련성 (다양성 확보)
+    # - "LLM"     # (선택) vLLM 로컬 모델로 자연어 토픽 라벨 — uv sync --extra llm
 
   # MMR 다양성 (0=최대 유사성, 1=최대 다양성)
   mmr_diversity: 0.3
+
+  # LLM 토픽 표현 (representation에 "LLM"이 있을 때만 사용)
+  # vLLM의 OpenAI 호환 엔드포인트에 연결 — 표준 BERTopic OpenAI 표현 모델 사용.
+  # 학술 근거: TopicGPT(NAACL 2024), LLM 기반 토픽 라벨링(arXiv:2502.18469).
+  llm:
+    base_url: "http://localhost:8000/v1"   # vLLM OpenAI 호환 주소
+    model: null            # vLLM이 서빙 중인 모델명 (필수). 예: "Qwen/Qwen2.5-7B-Instruct"
+    api_key: null          # null이면 OPENAI_API_KEY 또는 "EMPTY"(vLLM 무인증)
+    chat: true             # /v1/chat/completions
+    temperature: 0.0
+    nr_docs: 4             # 토픽당 LLM에 제공할 대표 문서 수
+    prompt: null           # null이면 내장 한국어 프롬프트(환각 완화 지시 포함)
 
   # 모델 저장 경로
   output_dir: "data/model_results"

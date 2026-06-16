@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -32,6 +33,70 @@ from pipeline.config import load_config
 from pipeline.embed import find_latest
 from pipeline.gpu import has_cuml
 from pipeline.tokenize import get_tokenizer
+
+
+# ── LLM 토픽 표현 (선택) ──────────────────────────────────────────────────────
+# 표준 패턴: BERTopic 기본 representation 모델 `OpenAI` 를 vLLM 의 OpenAI 호환
+# 엔드포인트(base_url)에 연결합니다. 별도 커스텀 클라이언트 없이, openai 파이썬
+# 클라이언트의 base_url 만 바꿔 로컬 vLLM 모델을 그대로 사용합니다.
+#
+# 켜는 법: config.yaml 의 model.representation 에 "LLM" 추가 + model.llm 설정.
+# 끄면(기본) openai 패키지/엔드포인트가 전혀 필요 없습니다.
+#
+# 프롬프트 placeholder (BERTopic 규약):
+#   [KEYWORDS]  → 토픽 대표 키워드 (KeyBERT→MMR 결과)
+#   [DOCUMENTS] → 토픽 대표 문서 (nr_docs 개)
+# 환각(hallucination) 완화: "제공된 내용만 사용, 추측 금지, 라벨만 출력" 지시.
+_DEFAULT_LLM_PROMPT_KO = """다음은 하나의 토픽에 속한 대표 문서와 키워드입니다.
+
+문서:
+[DOCUMENTS]
+
+키워드: [KEYWORDS]
+
+위에 제공된 내용에만 근거하여, 이 토픽을 한국어로 간결하게 나타내는 라벨을
+5단어 이내로 작성하세요. 제공되지 않은 내용을 추측하지 마세요.
+라벨만 출력하세요.
+토픽 라벨:"""
+
+
+def _make_llm_representation(model_cfg: dict):
+    """vLLM(OpenAI 호환)에 연결된 BERTopic OpenAI 표현 모델을 생성.
+
+    representation 체인의 마지막 단계로 사용해, 키워드+대표문서로부터
+    사람이 읽는 한국어 토픽 라벨을 생성합니다.
+    """
+    llm_cfg = model_cfg.get("llm", {}) or {}
+    try:
+        import openai
+        from bertopic.representation import OpenAI as OpenAIRepresentation
+    except ImportError as e:
+        raise ImportError(
+            "LLM 표현에는 openai 패키지가 필요합니다. 설치: uv sync --extra llm"
+        ) from e
+
+    model_name = llm_cfg.get("model")
+    if not model_name:
+        raise ValueError(
+            "model.llm.model 이 필요합니다 (vLLM이 서빙 중인 모델명). "
+            "예: \"Qwen/Qwen2.5-7B-Instruct\""
+        )
+
+    base_url = llm_cfg.get("base_url", "http://localhost:8000/v1")
+    # vLLM은 보통 인증이 없으므로 더미 키("EMPTY")를 사용해도 됩니다.
+    api_key = llm_cfg.get("api_key") or os.environ.get("OPENAI_API_KEY") or "EMPTY"
+    client = openai.OpenAI(base_url=base_url, api_key=api_key)
+
+    print(f"[Model] LLM 표현: vLLM {base_url} (model={model_name})")
+    return OpenAIRepresentation(
+        client,
+        model=model_name,
+        chat=llm_cfg.get("chat", True),
+        prompt=llm_cfg.get("prompt") or _DEFAULT_LLM_PROMPT_KO,
+        nr_docs=llm_cfg.get("nr_docs", 4),
+        # 생성 파라미터(온도 등)는 generator_kwargs로 vLLM에 전달됩니다.
+        generator_kwargs={"temperature": llm_cfg.get("temperature", 0.0)},
+    )
 
 
 def _load_tuned_config(embed_dir: Path) -> dict | None:
@@ -184,6 +249,9 @@ def main():
         "MMR": lambda: MaximalMarginalRelevance(
             diversity=model_cfg.get("mmr_diversity", 0.3)
         ),
+        # "LLM"은 체인 마지막에 두는 것을 권장 (KeyBERT→MMR로 정제된 키워드를 입력).
+        # 기본 representation에는 없으며, config에 "LLM"을 추가할 때만 생성됩니다.
+        "LLM": lambda: _make_llm_representation(model_cfg),
     }
     repr_chain = [_repr_factory[n]() for n in repr_names if n in _repr_factory]
     if not repr_chain:
