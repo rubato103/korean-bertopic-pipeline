@@ -282,6 +282,56 @@ make up-bareun         # bareun 서버 + 파이프라인 전체 실행
 
 ---
 
+## 토픽 표현(representation)
+
+c-TF-IDF는 BERTopic의 **주 표현으로 항상 산출**되고, `model.representation` 목록이
+`representation_mode`에 따라 함께 동작합니다.
+
+- **`parallel` (기본)** — 병렬 관점(aspect). 결과: **c-TF-IDF + KeyBERT + MMR 3종**을
+  나란히 산출(각각 별도 컬럼). 서로 다른 관점을 동시에 비교할 때 유용.
+- **`chained`** — 나열 순서대로 **주 표현을 순차 정제**(KeyBERT 관련성 → MMR 다양성).
+
+```yaml
+model:
+  representation: ["KeyBERT", "MMR"]   # c-TF-IDF는 자동 포함
+  representation_mode: "parallel"       # parallel | chained
+```
+
+| 항목 | 역할 | 근거 |
+|------|------|------|
+| `c-TF-IDF` | 클래스 기반 TF-IDF 주 표현(항상) | Grootendorst, arXiv:2203.05794 |
+| `KeyBERT` | 임베딩 기반 관련성 높은 키워드 | KeyBERTInspired (BERTopic) |
+| `MMR` | 다양성 확보(중복 억제) 재정렬 | Carbonell & Goldstein, SIGIR 1998 |
+| `LLM` | vLLM 로컬 모델로 **자연어 토픽 라벨** 생성 (선택) | TopicGPT(NAACL 2024), arXiv:2502.18469 |
+
+### LLM 표현 — vLLM 로컬 모델 (선택, 표준 패턴)
+
+별도 커스텀 없이 **BERTopic 기본 `OpenAI` 표현 모델을 vLLM의 OpenAI 호환
+엔드포인트(`base_url`)에 연결**합니다. `representation`에 `"LLM"`을 추가할 때만
+동작하며, 끄면 `openai` 패키지도 필요 없습니다.
+
+```bash
+uv sync --extra llm     # openai 클라이언트
+# vLLM 서버 예: vllm serve Qwen/Qwen2.5-7B-Instruct --port 8000
+```
+
+```yaml
+model:
+  representation: ["KeyBERT", "MMR", "LLM"]   # LLM은 체인 마지막 권장
+  llm:
+    base_url: "http://localhost:8000/v1"
+    model: "Qwen/Qwen2.5-7B-Instruct"   # vLLM이 서빙 중인 모델명 (필수)
+    api_key: null        # null → OPENAI_API_KEY 또는 "EMPTY"(무인증)
+    temperature: 0.0
+    nr_docs: 4
+    prompt: null         # null → 내장 한국어 프롬프트(환각 완화 지시 포함)
+```
+
+> 내장 프롬프트는 `[KEYWORDS]`·`[DOCUMENTS]`만 근거로 라벨을 생성하도록 지시해
+> **환각**을 줄입니다(참고: 토픽 입도·환각 한계, arXiv:2405.00611). 결과 라벨은 검증 권장.
+
+---
+
 ## 임베딩 모델 선택
 
 | 모델 | 언어 | 차원 | 속도 | 권장 환경 |

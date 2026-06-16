@@ -25,6 +25,8 @@ korean = ["kiwipiepy>=0.21"]
 # 한국어 형태소 분석 — Bareun (bareun-pipeline: httpx 배치 클라이언트 + DictManager)
 # 별도 Bareun 서버 컨테이너 필요. 참조: https://github.com/rubato103/bareun-pipeline
 bareun = ["bareun-pipeline>=0.1"]
+# LLM 토픽 표현 — vLLM(OpenAI 호환 엔드포인트)로 한국어 토픽 라벨 생성
+llm = ["openai>=1.0"]
 # PyTorch CUDA (임베딩 GPU 가속 — CUDA 13.2 / sm_120)
 # 직접 설치 권장: pip install torch --index-url https://download.pytorch.org/whl/cu128
 gpu = ["torch>=2.7"]

@@ -126,13 +126,32 @@ model:
   min_df: 5        # 최소 문서 빈도 (희귀 단어 제거)
   max_df: 0.95     # 최대 문서 빈도 비율 (너무 일반적인 단어 제거)
 
-  # 토픽 표현 방법 (복수 선택 가능)
+  # 토픽 표현 모델 — c-TF-IDF는 BERTopic 기본 주 표현으로 항상 산출됨.
+  # 아래 목록은 추가 표현이며, representation_mode에 따라 동작이 달라집니다.
   representation:
-    - "KeyBERT"   # 키버트 기반 핵심 단어
+    - "KeyBERT"   # 키버트 기반 핵심 단어 (관련성)
     - "MMR"       # 최대 주변 관련성 (다양성 확보)
+    # - "LLM"     # (선택) vLLM 로컬 모델로 자연어 토픽 라벨 — uv sync --extra llm
+
+  # 표현 모드:
+  #   parallel (기본) = 병렬 관점(aspect). 결과: c-TF-IDF + KeyBERT + MMR 3종을 나란히 산출
+  #   chained         = 나열 순서대로 주 표현을 순차 정제 (KeyBERT→MMR)
+  representation_mode: "parallel"
 
   # MMR 다양성 (0=최대 유사성, 1=최대 다양성)
   mmr_diversity: 0.3
+
+  # LLM 토픽 표현 (representation에 "LLM"이 있을 때만 사용)
+  # vLLM의 OpenAI 호환 엔드포인트에 연결 — 표준 BERTopic OpenAI 표현 모델 사용.
+  # 학술 근거: TopicGPT(NAACL 2024), LLM 기반 토픽 라벨링(arXiv:2502.18469).
+  llm:
+    base_url: "http://localhost:8000/v1"   # vLLM OpenAI 호환 주소
+    model: null            # vLLM이 서빙 중인 모델명 (필수). 예: "Qwen/Qwen2.5-7B-Instruct"
+    api_key: null          # null이면 OPENAI_API_KEY 또는 "EMPTY"(vLLM 무인증)
+    chat: true             # /v1/chat/completions
+    temperature: 0.0
+    nr_docs: 4             # 토픽당 LLM에 제공할 대표 문서 수
+    prompt: null           # null이면 내장 한국어 프롬프트(환각 완화 지시 포함)
 
   # 모델 저장 경로
   output_dir: "data/model_results"
