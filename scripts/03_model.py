@@ -239,28 +239,38 @@ def main():
         max_df=model_cfg.get("max_df", 0.95),
     )
 
-    # Representation models — a *chained list* refines the MAIN topic words
-    # sequentially (config order matters: KeyBERT for relevance → MMR for
-    # diversity). A dict, by contrast, only adds secondary "aspects" and leaves
-    # the main representation as raw c-TF-IDF.
+    # Representation — 두 가지 모드 (config: model.representation_mode)
+    #   parallel(기본): dict로 전달 → 주 표현은 c-TF-IDF 유지, 각 모델은 '병렬
+    #                   관점(aspect)'으로 나란히 산출. 기본 ["KeyBERT","MMR"]면
+    #                   c-TF-IDF + KeyBERT + MMR 3종이 함께 나옵니다.
+    #   chained       : list로 전달 → 나열 순서대로 주 표현을 순차 정제
+    #                   (예: KeyBERT 관련성 → MMR 다양성).
+    # c-TF-IDF는 BERTopic이 항상 계산하는 기본 주 표현입니다(별도 지정 불필요).
     repr_names = model_cfg.get("representation", ["KeyBERT", "MMR"])
+    repr_mode = model_cfg.get("representation_mode", "parallel")
     _repr_factory = {
         "KeyBERT": lambda: KeyBERTInspired(),
         "MMR": lambda: MaximalMarginalRelevance(
             diversity=model_cfg.get("mmr_diversity", 0.3)
         ),
-        # "LLM"은 체인 마지막에 두는 것을 권장 (KeyBERT→MMR로 정제된 키워드를 입력).
-        # 기본 representation에는 없으며, config에 "LLM"을 추가할 때만 생성됩니다.
+        # "LLM"은 config에 추가할 때만 생성됩니다(기본 미포함 → openai 불필요).
         "LLM": lambda: _make_llm_representation(model_cfg),
     }
-    repr_chain = [_repr_factory[n]() for n in repr_names if n in _repr_factory]
-    if not repr_chain:
-        representation_model = None
-    elif len(repr_chain) == 1:
-        representation_model = repr_chain[0]
+    built = [(n, _repr_factory[n]()) for n in repr_names if n in _repr_factory]
+    if not built:
+        representation_model = None                      # c-TF-IDF 원형만
+    elif repr_mode == "chained":
+        models = [m for _, m in built]
+        representation_model = models[0] if len(models) == 1 else models
+    else:                                                # parallel(기본) — dict aspects
+        representation_model = {n: m for n, m in built}
+
+    if repr_mode == "chained":
+        print(f"[Model] Representation (chained, 주 표현 정제): "
+              f"{[n for n, _ in built] or '(c-TF-IDF)'}")
     else:
-        representation_model = repr_chain  # chained → updates Main representation
-    print(f"[Model] Representation chain: {[n for n in repr_names if n in _repr_factory] or '(c-TF-IDF only)'}")
+        print(f"[Model] Representation (parallel): "
+              f"c-TF-IDF + {[n for n, _ in built] or '없음'}")
 
     embedding_model = SentenceTransformer(embed_cfg.get("model", "BAAI/bge-m3"))
 

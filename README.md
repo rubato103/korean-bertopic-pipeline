@@ -284,16 +284,22 @@ make up-bareun         # bareun 서버 + 파이프라인 전체 실행
 
 ## 토픽 표현(representation)
 
-`model.representation` 리스트가 **순서대로 체인 적용**되어 주 토픽 단어를 정제합니다.
-빈 리스트면 c-TF-IDF 원형을 사용합니다.
+c-TF-IDF는 BERTopic의 **주 표현으로 항상 산출**되고, `model.representation` 목록이
+`representation_mode`에 따라 함께 동작합니다.
+
+- **`parallel` (기본)** — 병렬 관점(aspect). 결과: **c-TF-IDF + KeyBERT + MMR 3종**을
+  나란히 산출(각각 별도 컬럼). 서로 다른 관점을 동시에 비교할 때 유용.
+- **`chained`** — 나열 순서대로 **주 표현을 순차 정제**(KeyBERT 관련성 → MMR 다양성).
 
 ```yaml
 model:
-  representation: ["KeyBERT", "MMR"]   # 관련성 → 다양성 (체인)
+  representation: ["KeyBERT", "MMR"]   # c-TF-IDF는 자동 포함
+  representation_mode: "parallel"       # parallel | chained
 ```
 
 | 항목 | 역할 | 근거 |
 |------|------|------|
+| `c-TF-IDF` | 클래스 기반 TF-IDF 주 표현(항상) | Grootendorst, arXiv:2203.05794 |
 | `KeyBERT` | 임베딩 기반 관련성 높은 키워드 | KeyBERTInspired (BERTopic) |
 | `MMR` | 다양성 확보(중복 억제) 재정렬 | Carbonell & Goldstein, SIGIR 1998 |
 | `LLM` | vLLM 로컬 모델로 **자연어 토픽 라벨** 생성 (선택) | TopicGPT(NAACL 2024), arXiv:2502.18469 |

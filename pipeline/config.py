@@ -59,8 +59,11 @@ _DEFAULTS: dict[str, Any] = {
         "nr_topics": None,
         "min_df": 5,
         "max_df": 0.95,
-        # 표현 체인(순서대로 주 표현 정제). "LLM"을 추가하면 vLLM으로 라벨 생성.
+        # 토픽 표현 모델 목록. parallel 모드에서는 c-TF-IDF(주) + 아래 모델들이
+        # 병렬 관점으로 나란히 산출됨 (기본: c-TF-IDF + KeyBERT + MMR 3종).
         "representation": ["KeyBERT", "MMR"],
+        # parallel(기본) = 병렬 aspect / chained = 순서대로 주 표현 정제
+        "representation_mode": "parallel",
         "mmr_diversity": 0.3,
         # LLM 표현(선택) — representation에 "LLM"이 있을 때만 사용.
         # vLLM의 OpenAI 호환 엔드포인트로 연결 (base_url).

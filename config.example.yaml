@@ -126,13 +126,17 @@ model:
   min_df: 5        # 최소 문서 빈도 (희귀 단어 제거)
   max_df: 0.95     # 최대 문서 빈도 비율 (너무 일반적인 단어 제거)
 
-  # 토픽 표현 방법 — 나열 순서대로 체인 적용되어 '주 표현'을 정제
-  # (예: KeyBERT로 관련성↑ → MMR로 다양성↑). 빈 리스트면 c-TF-IDF 원형 사용.
-  # "LLM"을 마지막에 추가하면 vLLM으로 한국어 토픽 라벨 생성 (아래 llm 설정).
+  # 토픽 표현 모델 — c-TF-IDF는 BERTopic 기본 주 표현으로 항상 산출됨.
+  # 아래 목록은 추가 표현이며, representation_mode에 따라 동작이 달라집니다.
   representation:
     - "KeyBERT"   # 키버트 기반 핵심 단어 (관련성)
     - "MMR"       # 최대 주변 관련성 (다양성 확보)
     # - "LLM"     # (선택) vLLM 로컬 모델로 자연어 토픽 라벨 — uv sync --extra llm
+
+  # 표현 모드:
+  #   parallel (기본) = 병렬 관점(aspect). 결과: c-TF-IDF + KeyBERT + MMR 3종을 나란히 산출
+  #   chained         = 나열 순서대로 주 표현을 순차 정제 (KeyBERT→MMR)
+  representation_mode: "parallel"
 
   # MMR 다양성 (0=최대 유사성, 1=최대 다양성)
   mmr_diversity: 0.3
