@@ -1,5 +1,5 @@
 """
-01_embed.py — Step 1: Generate SBERT embeddings
+01_embed.py — Step 1: 임베딩 (원문 SBERT 벡터 생성)
 
 Usage:
     uv run python scripts/01_embed.py
@@ -96,7 +96,7 @@ def main():
     paths = gen.save(embeddings, df, output_dir)
 
     print(f"\n[Done] Embeddings saved to: {paths['embeddings']}")
-    print("Next step: uv run python scripts/02_tune.py  (or skip to 03_model.py)")
+    print("Next step: uv run python scripts/02_reduce_cluster.py  (or skip to 03_bertopic.py)")
 
 
 if __name__ == "__main__":

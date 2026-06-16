@@ -33,9 +33,9 @@ cat <<'EOF'
 
 [setup] 완료 ✓
 다음 단계:
-  uv run python scripts/01_embed.py
-  uv run python scripts/02_tune.py
-  uv run python scripts/03_model.py
+  uv run python scripts/01_embed.py            # 임베딩
+  uv run python scripts/02_reduce_cluster.py   # 차원축소·군집 그리드 서치(선택)
+  uv run python scripts/03_bertopic.py         # BERTopic (차원축소·군집·표현)
 
 GPU 차원축소/군집(cuML)까지 원클릭 → Docker 권장:
   make build && make pipeline
