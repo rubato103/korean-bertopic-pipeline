@@ -161,7 +161,7 @@ uv run python scripts/03_model.py --no-cuml
 |------|------|------|------|-----------|
 | `BAAI/bge-m3` | 다국어 | 1024d | 느림 | GPU 필수 |
 | `jhgan/ko-sroberta-multitask` | 한국어 | 768d | 빠름 | CPU 가능 |
-| `all-MiniLM-L6-v2` | 영어 | 384d | 매우 빠름 | CPU 가능 |
+| `sentence-transformers/all-MiniLM-L6-v2` | 영어 | 384d | 매우 빠름 | CPU 가능 |
 
 ---
 
@@ -265,6 +265,7 @@ umap_model = make_umap(n_neighbors=15, n_components=10)
 hdbscan_model = make_hdbscan(min_cluster_size=150)
 
 # 한국어 토크나이저
+# Bareun(권장): get_tokenizer("bareun", bareun={"host": "localhost", "port": 5656})
 tokenizer = get_tokenizer(
     tokenizer_type="kiwi",
     user_dict_path="data/dictionaries/user_dict.txt",
@@ -295,9 +296,10 @@ data/model_results/
 
 ## 요구사항
 
-- Python 3.12+
+- Python 3.12+ · 패키지 관리: **uv** (`uv.lock` 고정)
 - GPU (임베딩): NVIDIA CUDA 12+ — bge-m3 사용 시 VRAM 8GB 이상 권장
 - GPU (cuML): WSL2 + RAPIDS 25.04+ — RTX 5060 Ti(sm_120) 이상
+- 한국어 형태소(선택): **Bareun**(별도 gRPC 서버, 권장) 또는 **Kiwi**(`--extra korean`)
 - RAM: 16GB 이상 (튜닝 시 32GB 권장)
 
 ---
