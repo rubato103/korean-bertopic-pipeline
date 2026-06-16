@@ -9,12 +9,14 @@ config 기반 · GPU 가속(임베딩 PyTorch CUDA + 차원축소/군집 RAPIDS 
 
 뉴스·논문·SNS 등 대규모 텍스트에서 토픽을 자동 추출합니다. 3단계 CLI 스크립트로 구성됩니다.
 
-| 단계 | 스크립트 | 역할 | 가속 |
+BERTopic 표준 단계 — **임베딩 → 차원축소 → 군집 → 표현** — 에 맞춘 스크립트 구성입니다.
+
+| 단계 (BERTopic 표준) | 스크립트 | 역할 | 가속 |
 |------|----------|------|------|
 | 0. 사전 튜닝 (선택, 한국어) | `scripts/00_dict.py` | Bareun 사용자 사전 반복 등록·테스트 | Bareun 서버 |
 | 1. 임베딩 | `scripts/01_embed.py` | **원문** SBERT 벡터 생성 | PyTorch CUDA (VRAM 자동 배치) |
-| 2. 튜닝 (선택) | `scripts/02_tune.py` | UMAP/HDBSCAN 그리드 서치 | CPU 멀티프로세스 / cuML GPU |
-| 3. 모델링 | `scripts/03_model.py` | BERTopic 실행 + 표현 정제 | cuML GPU / CPU 자동 |
+| 2. 차원축소 · 군집 (선택) | `scripts/02_reduce_cluster.py` | UMAP(차원축소)·HDBSCAN(군집) **파라미터 그리드 서치** | CPU 멀티프로세스 / cuML GPU |
+| 3. BERTopic (차원축소·군집·표현) | `scripts/03_bertopic.py` | UMAP→HDBSCAN 실행 + **표현(representation)** 정제 | cuML GPU / CPU 자동 |
 
 각 단계는 타임스탬프 산출물을 남기고, 다음 단계가 디렉토리에서 최신 파일을 자동으로 찾습니다.
 
@@ -52,7 +54,7 @@ cd korean-bertopic-pipeline
 
 make build          # config.yaml/.env 자동 생성 후 단일 GPU 이미지 빌드
 make gpu-check      # GPU + cuML 감지 확인
-make pipeline       # 01 임베딩 → 02 튜닝 → 03 모델 전체 실행
+make pipeline       # 임베딩 → 차원축소·군집 → BERTopic 전체 실행
 ```
 
 ### Make 타깃
@@ -61,8 +63,8 @@ make pipeline       # 01 임베딩 → 02 튜닝 → 03 모델 전체 실행
 |------|------|
 | `make init` | `config.yaml`·`.env`·산출물 디렉토리 생성 (다른 타깃의 선행 조건) |
 | `make build` | RAPIDS 25.04(cuML 포함) + torch(cu128) + BERTopic 단일 이미지 빌드 |
-| `make embed` / `make tune` / `make model` | 단계별 실행 |
-| `make pipeline` | 1 → 2 → 3 전체 실행 |
+| `make embed` / `make reduce-cluster` / `make bertopic` | 단계별 실행 (임베딩 / 차원축소·군집 / BERTopic) |
+| `make pipeline` | 임베딩 → 차원축소·군집 → BERTopic 전체 실행 |
 | `make up-bareun` | Bareun 서버 기동 후 전체 파이프라인 실행 (`tokenizer.type: bareun`) |
 | `make gpu-check` | GPU/cuML 가용성 점검 |
 | `make shell` | 컨테이너 셸 진입 |
@@ -95,9 +97,9 @@ uv pip install torch --index-url https://download.pytorch.org/whl/cu128
 
 # 설정 파일 생성 후 실행
 cp config.example.yaml config.yaml
-uv run python scripts/01_embed.py
-uv run python scripts/02_tune.py     # 선택
-uv run python scripts/03_model.py
+uv run python scripts/01_embed.py            # 임베딩
+uv run python scripts/02_reduce_cluster.py   # 차원축소·군집 그리드 서치 (선택)
+uv run python scripts/03_bertopic.py         # BERTopic (차원축소·군집·표현)
 ```
 
 또는 한 번에: `./setup.sh` (uv sync + torch 설치 + config 생성).
@@ -168,13 +170,13 @@ cuml:
 
 ```bash
 # 01_embed: 임베딩 생성
-scripts/01_embed.py [--config] [--model] [--batch-size] [--max-chars] [--input] [--output-dir]
+scripts/01_embed.py           [--config] [--model] [--batch-size] [--max-chars] [--input] [--output-dir]
 
-# 02_tune: 파라미터 튜닝
-scripts/02_tune.py  [--config] [--workers] [--embed-dir] [--no-cuml]
+# 02_reduce_cluster: 차원축소·군집 파라미터 그리드 서치
+scripts/02_reduce_cluster.py  [--config] [--workers] [--embed-dir] [--no-cuml]
 
-# 03_model: BERTopic 실행
-scripts/03_model.py [--config] [--nr-topics] [--embed-dir] [--output-dir] [--no-cuml]
+# 03_bertopic: BERTopic (차원축소·군집·표현)
+scripts/03_bertopic.py        [--config] [--nr-topics] [--embed-dir] [--output-dir] [--no-cuml]
 ```
 
 ---
@@ -199,8 +201,8 @@ RTX 5060 Ti (16GB) 참고치:
 
 ```bash
 # CPU 강제 실행
-uv run python scripts/02_tune.py  --no-cuml
-uv run python scripts/03_model.py --no-cuml
+uv run python scripts/02_reduce_cluster.py --no-cuml
+uv run python scripts/03_bertopic.py       --no-cuml
 ```
 
 ```bash
@@ -380,7 +382,11 @@ korean-bertopic-pipeline/
 │   ├── gpu.py              ·· GPU/cuML 감지, 배치 계산, UMAP/HDBSCAN 팩토리
 │   ├── tokenize.py         ·· Bareun / Kiwi / Whitespace 토크나이저
 │   └── metrics.py          ·· 토픽 품질 지표 (Coherence, Diversity)
-├── scripts/                ← CLI 실행 스크립트 (00_dict / 01 / 02 / 03)
+├── scripts/                ← CLI 실행 스크립트
+│   ├── 00_dict.py          ·· (선택) Bareun 사용자 사전 반복 튜닝
+│   ├── 01_embed.py         ·· 임베딩 (원문 SBERT)
+│   ├── 02_reduce_cluster.py ·· 차원축소·군집 파라미터 그리드 서치
+│   └── 03_bertopic.py      ·· BERTopic (차원축소·군집·표현)
 └── data/sample/            ← 샘플 데이터 (20건)
 ```
 

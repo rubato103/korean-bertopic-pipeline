@@ -1,10 +1,13 @@
 """
-03_model.py — Step 3: Run BERTopic model
+03_bertopic.py — Step 3: BERTopic 모델링 (차원축소 + 군집 + 표현)
+
+BERTopic 표준 파이프라인 실행: UMAP 차원축소 → HDBSCAN 군집 →
+c-TF-IDF + 표현(representation). 02 단계의 튜닝 결과가 있으면 자동 사용.
 
 Usage:
-    uv run python scripts/03_model.py
-    uv run python scripts/03_model.py --config my_config.yaml
-    uv run python scripts/03_model.py --nr-topics 30
+    uv run python scripts/03_bertopic.py
+    uv run python scripts/03_bertopic.py --config my_config.yaml
+    uv run python scripts/03_bertopic.py --nr-topics 30
 
 Output: data/model_results/<timestamp>_bertopic_model/
          data/model_results/<timestamp>_topic_info.csv

@@ -1,14 +1,17 @@
 """
-02_tune.py — Step 2: UMAP/HDBSCAN parameter grid search
+02_reduce_cluster.py — Step 2: 차원축소(UMAP) · 군집(HDBSCAN) 파라미터 그리드 서치
+
+BERTopic 표준 단계의 '차원축소 + 군집'에 대한 파라미터 튜닝(그리드 서치).
+최적 UMAP/HDBSCAN 파라미터를 찾아 03_bertopic 단계에서 사용합니다.
 
 Usage:
-    uv run python scripts/02_tune.py
-    uv run python scripts/02_tune.py --config my_config.yaml
-    uv run python scripts/02_tune.py --workers 4
-    uv run python scripts/02_tune.py --no-cuml   # force CPU even if cuML available
+    uv run python scripts/02_reduce_cluster.py
+    uv run python scripts/02_reduce_cluster.py --config my_config.yaml
+    uv run python scripts/02_reduce_cluster.py --workers 4
+    uv run python scripts/02_reduce_cluster.py --no-cuml   # force CPU even if cuML available
 
 Output: data/embeddings/<timestamp>_tuned_config.json
-         reports/<timestamp>_tuning_report.md
+         reports/<timestamp>_tuning_results.csv
 """
 from __future__ import annotations
 
@@ -131,7 +134,7 @@ def _run_batched_trial(task: dict) -> list[dict]:
             )
 
             # Docs are already tokenized + stopword-filtered by the tokenizer,
-            # so we mirror 03_model's vectorizer (same min_df/max_df, no
+            # so we mirror 03_bertopic's vectorizer (same min_df/max_df, no
             # double stop_words) to keep tuning scores consistent with the
             # final model.
             vectorizer = CountVectorizer(
@@ -352,7 +355,7 @@ def main():
     print(f"  UMAP:    n_neighbors={int(best['n_neighbors'])}, n_components={int(best['n_components'])}, min_dist={float(best['min_dist'])}")
     print(f"  HDBSCAN: min_cluster_size={int(best['min_cluster_size'])}, min_samples={int(best['min_samples'])}")
     print(f"\n  Config: {config_path}")
-    print("Next step: uv run python scripts/03_model.py")
+    print("Next step: uv run python scripts/03_bertopic.py")
 
 
 if __name__ == "__main__":
