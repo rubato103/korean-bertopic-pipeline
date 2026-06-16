@@ -29,6 +29,15 @@ _DEFAULTS: dict[str, Any] = {
         "user_dict_path": None,
         "stopwords_path": None,
         "min_token_len": 2,
+        "bareun": {
+            "host": "localhost",
+            "port": 5656,
+            "apikey": None,  # None → BAREUN_API_KEY env var
+            "custom_dict_names": [],          # DictManager로 튜닝한 도메인명
+            "batch_size": 50,                 # bareun-pipeline 배치 크기
+            "max_workers": 8,                 # 병렬 요청 수
+            "combine_consecutive_nominals": True,  # 연속 NNG/NNP 결합
+        },
     },
     "tuning": {
         "enabled": True,
@@ -54,6 +63,9 @@ _DEFAULTS: dict[str, Any] = {
         "mmr_diversity": 0.3,
         "output_dir": "data/model_results",
         "save_model": True,
+    },
+    "cuml": {
+        "enabled": None,  # None=auto-detect, True=force GPU, False=force CPU
     },
 }
 

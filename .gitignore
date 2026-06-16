@@ -8,10 +8,6 @@ venv/
 dist/
 build/
 
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb_checkpoints
-
 # Data — large files excluded from repo
 data/embeddings/*.npy
 data/embeddings/*.csv
@@ -30,6 +26,9 @@ plots/
 # Config with credentials or local paths
 config.yaml
 config.local.yaml
+
+# Environment variables (API keys e.g. BAREUN_API_KEY)
+.env
 
 # OS
 .DS_Store

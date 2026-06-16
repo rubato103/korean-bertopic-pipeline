@@ -33,11 +33,12 @@ _DEFAULT_MODEL_VRAM = {"base": 2.0, "per_batch": 0.15}
 def get_gpu_status() -> GPUStatus:
     """Query GPU status via nvidia-smi (no torch dependency)."""
     try:
-        # --query-gpu: total, free, used memory (MiB)
+        # --query-gpu: name, total/used/free memory (MiB).
+        # NOTE: --query-gpu and --query-compute-apps cannot be combined in one
+        # call — nvidia-smi emits two separate tables and breaks parsing.
         result = subprocess.run(
             ["nvidia-smi",
              "--query-gpu=name,memory.total,memory.used,memory.free",
-             "--query-compute-apps=pid,used_memory",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5,
         )
@@ -47,11 +48,6 @@ def get_gpu_status() -> GPUStatus:
         lines = [l.strip() for l in result.stdout.strip().splitlines() if l.strip()]
         name, total, used, free = lines[0].split(", ")
 
-        # CUDA version from nvidia-smi header
-        smi_ver = subprocess.run(
-            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=5,
-        )
         cuda_ver = _get_cuda_version()
 
         total_gb = int(total) / 1024
@@ -71,7 +67,8 @@ def get_gpu_status() -> GPUStatus:
             ollama_model=ollama_model,
         )
 
-    except (FileNotFoundError, RuntimeError, Exception):
+    except Exception:
+        # nvidia-smi missing or unparseable → treat as CPU-only.
         return GPUStatus(
             available=False, name="CPU", total_vram_gb=0, used_vram_gb=0,
             free_vram_gb=0, cuda_version="N/A", ollama_active=False, ollama_model=None,

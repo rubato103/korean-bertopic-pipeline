@@ -20,8 +20,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# 한국어 형태소 분석
-korean = ["kiwipiepy>=0.17"]
+# 한국어 형태소 분석 — Kiwi (in-process, model_type="cong-global"은 0.21+ 필요)
+korean = ["kiwipiepy>=0.21"]
+# 한국어 형태소 분석 — Bareun (bareun-pipeline: httpx 배치 클라이언트 + DictManager)
+# 별도 Bareun 서버 컨테이너 필요. 참조: https://github.com/rubato103/bareun-pipeline
+bareun = ["bareun-pipeline>=0.1"]
 # PyTorch CUDA (임베딩 GPU 가속 — CUDA 13.2 / sm_120)
 # 직접 설치 권장: pip install torch --index-url https://download.pytorch.org/whl/cu128
 gpu = ["torch>=2.7"]
@@ -29,10 +32,6 @@ gpu = ["torch>=2.7"]
 # conda install -c rapidsai cuml=25.04 python=3.12 cuda-version=12.8
 # pip (nightly): pip install cuml-cu12 --extra-index-url https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
 cuml = []  # pyproject.toml 직접 관리 불가 — 위 conda/pip 명령 사용
-# Jupyter 노트북
-notebook = ["jupyter", "ipywidgets", "matplotlib", "tabulate"]
-# 개발
-dev = ["pytest", "ruff", "jupyter", "matplotlib", "tabulate"]
 
 [build-system]
 requires = ["hatchling"]
@@ -43,12 +42,10 @@ build-backend = "hatchling.build"
 packages = ["pipeline"]
 
 [tool.uv]
+# 개발 의존성은 uv가 단일 관리 (uv sync 시 자동 설치, uv.lock으로 고정)
 dev-dependencies = [
     "pytest>=8.0",
     "ruff>=0.4",
-    "jupyter>=1.0",
-    "matplotlib>=3.7",
-    "tabulate>=0.9",
 ]
 
 [tool.ruff]

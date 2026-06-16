@@ -94,6 +94,7 @@ def main():
         user_dict_path=tok_cfg.get("user_dict_path"),
         stopwords_path=tok_cfg.get("stopwords_path"),
         min_token_len=tok_cfg.get("min_token_len", 2),
+        bareun=tok_cfg.get("bareun"),
     )
 
     if hasattr(tokenizer, "tokenize_batch"):
